@@ -1,0 +1,1 @@
+// Shared Clip and Track ID generation will live here.

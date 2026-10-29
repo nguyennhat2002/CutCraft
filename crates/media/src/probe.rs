@@ -1,0 +1,1 @@
+// Media duration, frame rate, and codec probing will live here.

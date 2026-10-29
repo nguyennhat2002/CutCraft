@@ -1,0 +1,1 @@
+// CapCut draft_content.json and draft_info.json schema types will live here.

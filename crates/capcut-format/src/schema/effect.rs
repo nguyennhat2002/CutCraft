@@ -1,0 +1,1 @@
+// Effect and transition schema types will live here.

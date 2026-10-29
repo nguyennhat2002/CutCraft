@@ -1,0 +1,1 @@
+// CapCut-style application layout will live here.

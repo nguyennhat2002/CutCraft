@@ -1,0 +1,10 @@
+[package]
+name = "capcut-renderer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+[dependencies]
+capcut-core.workspace = true
+capcut-engine.workspace = true
+capcut-media.workspace = true

@@ -1,0 +1,1 @@
+// CapCut draft validation will live here.

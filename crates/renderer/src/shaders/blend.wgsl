@@ -1,0 +1,1 @@
+// Blend shader entry points will be added with the compositor.

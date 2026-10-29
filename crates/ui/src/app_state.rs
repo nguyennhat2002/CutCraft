@@ -1,0 +1,1 @@
+// Global application state, including the editing project, will live here.

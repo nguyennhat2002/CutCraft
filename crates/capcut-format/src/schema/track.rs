@@ -1,0 +1,1 @@
+// CapCut track and track-kind schema types will live here.
