@@ -19,10 +19,11 @@ pub enum EditorTool {
     Captions,
     Filters,
     Adjustment,
+    Templates,
 }
 
 impl EditorTool {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Media,
         Self::Audio,
         Self::Text,
@@ -32,6 +33,7 @@ impl EditorTool {
         Self::Captions,
         Self::Filters,
         Self::Adjustment,
+        Self::Templates,
     ];
 
     pub fn label(self) -> &'static str {
@@ -45,6 +47,7 @@ impl EditorTool {
             Self::Captions => "Captions",
             Self::Filters => "Filters",
             Self::Adjustment => "Adjustment",
+            Self::Templates => "Templates",
         }
     }
 }
@@ -52,29 +55,87 @@ impl EditorTool {
 /// Inspector property tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InspectorTab {
-    Video,
-    Audio,
+    Captions,
     Text,
     Animation,
+    Video,
+    Audio,
     Basic,
 }
 
 impl InspectorTab {
-    pub const ALL: [Self; 5] = [
-        Self::Video,
-        Self::Audio,
+    pub const ALL: [Self; 6] = [
+        Self::Captions,
         Self::Text,
         Self::Animation,
+        Self::Video,
+        Self::Audio,
         Self::Basic,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Video => "Video",
-            Self::Audio => "Audio",
+            Self::Captions => "Captions",
             Self::Text => "Text",
             Self::Animation => "Animation",
+            Self::Video => "Video",
+            Self::Audio => "Audio",
             Self::Basic => "Basic",
+        }
+    }
+}
+
+/// Secondary tabs for caption/text styling in the Inspector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptionTab {
+    Basic,
+    Templates,
+    Bubble,
+    Effects,
+}
+
+impl CaptionTab {
+    pub const ALL: [Self; 4] = [Self::Basic, Self::Templates, Self::Bubble, Self::Effects];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Basic => "Basic",
+            Self::Templates => "Templates",
+            Self::Bubble => "Bubble",
+            Self::Effects => "Effects",
+        }
+    }
+}
+
+/// Alignment demo state for the Captions inspector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptionAlignment {
+    Left,
+    Center,
+    Right,
+    Justify,
+}
+
+impl CaptionAlignment {
+    pub const ALL: [Self; 4] = [Self::Left, Self::Center, Self::Right, Self::Justify];
+}
+
+/// Case demo state for the Captions inspector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptionCase {
+    Upper,
+    Lower,
+    Title,
+}
+
+impl CaptionCase {
+    pub const ALL: [Self; 3] = [Self::Upper, Self::Lower, Self::Title];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Upper => "TT",
+            Self::Lower => "tt",
+            Self::Title => "Tt",
         }
     }
 }
@@ -117,6 +178,18 @@ pub struct EditorSession {
     pub project_name: String,
     pub active_tool: EditorTool,
     pub inspector_tab: InspectorTab,
+    pub caption_tab: CaptionTab,
+    pub caption_apply_all: bool,
+    pub caption_font_size: f32,
+    pub caption_bold: bool,
+    pub caption_underline: bool,
+    pub caption_italic: bool,
+    pub caption_case: CaptionCase,
+    pub caption_color: [u8; 3],
+    pub caption_character_spacing: f32,
+    pub caption_line_spacing: f32,
+    pub caption_alignment: CaptionAlignment,
+    pub caption_style: usize,
     pub preview_aspect: PreviewAspect,
     pub export_open: bool,
     pub export_settings: ExportSettings,
@@ -132,9 +205,21 @@ impl Default for EditorSession {
     fn default() -> Self {
         Self {
             project_name: "Untitled Project".to_owned(),
-            active_tool: EditorTool::Media,
-            inspector_tab: InspectorTab::Video,
-            preview_aspect: PreviewAspect::Landscape,
+            active_tool: EditorTool::Captions,
+            inspector_tab: InspectorTab::Captions,
+            caption_tab: CaptionTab::Basic,
+            caption_apply_all: true,
+            caption_font_size: 10.0,
+            caption_bold: false,
+            caption_underline: false,
+            caption_italic: false,
+            caption_case: CaptionCase::Title,
+            caption_color: [255, 255, 255],
+            caption_character_spacing: 0.0,
+            caption_line_spacing: 0.0,
+            caption_alignment: CaptionAlignment::Center,
+            caption_style: 0,
+            preview_aspect: PreviewAspect::Portrait,
             export_open: false,
             export_settings: ExportSettings::default(),
             tools_visible: true,
@@ -176,13 +261,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_session_is_unsaved_and_empty() {
+    fn new_session_is_unsaved_and_starts_on_captions_preview() {
         let session = EditorSession::default();
 
         assert_eq!(session.project_name, "Untitled Project");
-        assert_eq!(session.active_tool, EditorTool::Media);
-        assert_eq!(session.inspector_tab, InspectorTab::Video);
-        assert_eq!(session.preview_aspect, PreviewAspect::Landscape);
+        assert_eq!(session.active_tool, EditorTool::Captions);
+        assert_eq!(session.inspector_tab, InspectorTab::Captions);
+        assert_eq!(session.preview_aspect, PreviewAspect::Portrait);
+        assert_eq!(session.caption_tab, CaptionTab::Basic);
+        assert_eq!(session.caption_font_size, 10.0);
         assert!(!session.export_open);
         assert!(session.tools_visible);
         assert!(session.inspector_visible);
@@ -225,11 +312,13 @@ mod tests {
 
     #[test]
     fn all_editor_tools_and_inspector_tabs_expose_labels() {
-        assert_eq!(EditorTool::ALL.len(), 9);
+        assert_eq!(EditorTool::ALL.len(), 10);
         assert_eq!(EditorTool::Stickers.label(), "Stickers");
-        assert_eq!(EditorTool::Adjustment.label(), "Adjustment");
-        assert_eq!(InspectorTab::ALL.len(), 5);
-        assert_eq!(InspectorTab::Animation.label(), "Animation");
+        assert_eq!(EditorTool::Templates.label(), "Templates");
+        assert_eq!(InspectorTab::ALL.len(), 6);
+        assert_eq!(InspectorTab::Captions.label(), "Captions");
+        assert_eq!(CaptionTab::ALL.len(), 4);
+        assert_eq!(CaptionTab::Bubble.label(), "Bubble");
     }
 
     #[test]

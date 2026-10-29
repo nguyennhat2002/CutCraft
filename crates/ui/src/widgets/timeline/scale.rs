@@ -5,8 +5,8 @@
 
 use crate::config;
 
-const MIN_PIXELS_PER_SECOND: f32 = 20.0;
-const MAX_PIXELS_PER_SECOND: f32 = 320.0;
+const MIN_PIXELS_PER_SECOND: f32 = config::TIMELINE_MIN_PIXELS_PER_SECOND;
+const MAX_PIXELS_PER_SECOND: f32 = config::TIMELINE_MAX_PIXELS_PER_SECOND;
 const MIN_MAJOR_LABEL_SPACING: f32 = 72.0;
 const MAX_TICKS: usize = 2_000;
 const MAJOR_INTERVALS: [u64; 10] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
@@ -147,7 +147,7 @@ mod tests {
         let scale = default_scale();
 
         assert_eq!(scale.x_for_seconds(0.0), 14.0);
-        assert!((scale.x_for_seconds(2.0) - 174.0).abs() < 0.01);
+        assert!((scale.x_for_seconds(2.0) - 34.0).abs() < 0.01);
         assert_eq!(scale.x_for_seconds(-1.0), 14.0);
         assert_eq!(scale.x_for_seconds(f64::NAN), 14.0);
     }
@@ -156,7 +156,7 @@ mod tests {
     fn content_width_covers_duration_and_padding() {
         let scale = default_scale();
 
-        assert!((scale.content_width(60) - (14.0 + 4_800.0 + 14.0)).abs() < 0.01);
+        assert!((scale.content_width(60) - (14.0 + 600.0 + 14.0)).abs() < 0.01);
         assert!(scale.content_width(0) >= 1.0);
     }
 
@@ -165,13 +165,15 @@ mod tests {
         assert_eq!(TimelineScale::new(80.0, 0.0).major_tick_interval(), 1);
         assert_eq!(TimelineScale::new(40.0, 0.0).major_tick_interval(), 2);
         assert_eq!(TimelineScale::new(20.0, 0.0).major_tick_interval(), 5);
+        assert_eq!(TimelineScale::new(10.0, 0.0).major_tick_interval(), 10);
+        assert_eq!(TimelineScale::new(4.0, 0.0).major_tick_interval(), 30);
     }
 
     #[test]
     fn ticks_include_zero_and_the_duration_boundary() {
-        let ticks = default_scale().ticks(5);
+        let ticks = default_scale().ticks(30);
 
-        assert_eq!(ticks, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(ticks, vec![0, 10, 20, 30]);
     }
 
     #[test]

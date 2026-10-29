@@ -18,7 +18,6 @@ use crate::theme::Palette;
 use crate::widgets::common;
 use crate::widgets::controls;
 use crate::widgets::icons::Icon;
-use crate::widgets::preview::fit_preview_rect;
 
 pub fn show(context: &Context, session: &mut EditorSession) {
     if !session.export_open {
@@ -26,11 +25,11 @@ pub fn show(context: &Context, session: &mut EditorSession) {
     }
 
     let content = context.content_rect();
-    let dialog_width = (content.width() - 64.0).clamp(
+    let dialog_width = (content.width() - 80.0).clamp(
         config::EXPORT_DIALOG_MIN_WIDTH,
         config::EXPORT_DIALOG_MAX_WIDTH,
     );
-    let dialog_height = (content.height() - 56.0).clamp(360.0, config::EXPORT_DIALOG_MAX_HEIGHT);
+    let dialog_height = (content.height() - 64.0).clamp(400.0, config::EXPORT_DIALOG_MAX_HEIGHT);
 
     let mut close_requested = false;
 
@@ -38,102 +37,106 @@ pub fn show(context: &Context, session: &mut EditorSession) {
         .backdrop_color(egui::Color32::from_black_alpha(170))
         .frame(
             Frame::new()
-                .fill(Palette::PANEL_RAISED)
+                .fill(Palette::MODAL_BG)
                 .stroke(Stroke::new(1.0, Palette::BORDER))
                 .corner_radius(CornerRadius::same(8))
-                .inner_margin(Margin::same(16)),
+                .inner_margin(Margin::ZERO),
         )
         .show(context, |ui| {
             ui.set_width(dialog_width);
             ui.set_max_height(dialog_height);
 
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(
-                        RichText::new("Export")
-                            .size(18.0)
-                            .strong()
-                            .color(Palette::TEXT_PRIMARY),
-                    );
-                    ui.label(
-                        RichText::new(
-                            "Configure a future MP4 export. Settings are stored for this \
-                             temporary session only.",
-                        )
-                        .size(9.5)
-                        .color(Palette::TEXT_MUTED),
-                    );
+            Frame::new()
+                .inner_margin(Margin::symmetric(18, 10))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("Export")
+                                .size(15.0)
+                                .strong()
+                                .color(Palette::TEXT_PRIMARY),
+                        );
+                        ui.add_space(4.0);
+                        common::badge(ui, "Encoder unavailable", Palette::WARNING);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if common::icon_button(ui, Icon::Close, "Close export dialog").clicked()
+                            {
+                                close_requested = true;
+                            }
+                        });
+                    });
                 });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if common::icon_button(ui, Icon::Close, "Close export dialog").clicked() {
-                        close_requested = true;
-                    }
-                    ui.add_space(4.0);
-                    common::badge(ui, "Not available", Palette::WARNING);
-                });
-            });
-
-            ui.add_space(7.0);
             ui.separator();
-            ui.add_space(8.0);
 
-            let body_height = (dialog_height - 130.0).max(260.0);
-            ui.horizontal_top(|ui| {
-                let available = ui.available_width();
-                let left_width = (available * 0.40).max(250.0);
-                let right_width = (available - left_width - 16.0).max(280.0);
+            let body_height = (dialog_height - 112.0).max(260.0);
+            Frame::new()
+                .inner_margin(Margin::symmetric(18, 12))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_top(|ui| {
+                        ui.allocate_ui_with_layout(
+                            vec2(190.0, body_height),
+                            Layout::top_down(Align::Min),
+                            |ui| cover_panel(ui, session, body_height),
+                        );
+                        ui.add_space(20.0);
+                        ui.allocate_ui_with_layout(
+                            vec2(ui.available_width(), body_height),
+                            Layout::top_down(Align::Min),
+                            |ui| {
+                                let _ = ScrollArea::vertical()
+                                    .id_salt("export_form_scroll")
+                                    .auto_shrink([false, false])
+                                    .max_height(body_height)
+                                    .scroll_bar_visibility(
+                                        egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                                    )
+                                    .show(ui, |ui| form(ui, session));
+                            },
+                        );
+                    });
+                });
 
-                ui.allocate_ui_with_layout(
-                    vec2(left_width, body_height),
-                    Layout::top_down(Align::Min),
-                    |ui| preview_panel(ui, session, body_height),
-                );
-                ui.add_space(16.0);
-                ui.allocate_ui_with_layout(
-                    vec2(right_width, body_height),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        let _ = ScrollArea::vertical()
-                            .id_salt("export_form_scroll")
-                            .auto_shrink([false, false])
-                            .max_height(body_height)
-                            .scroll_bar_visibility(
-                                egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+            ui.separator();
+            Frame::new()
+                .inner_margin(Margin::symmetric(18, 10))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(
+                                "Export is unavailable: no encoder is implemented in this build.",
                             )
-                            .show(ui, |ui| {
-                                form(ui, session);
-                            });
-                    },
-                );
-            });
-
-            ui.add_space(3.0);
-            ui.separator();
-            ui.add_space(7.0);
-
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("Encoding is not available in this milestone.")
-                        .size(9.0)
-                        .color(Palette::TEXT_DISABLED),
-                );
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let export_button = ui.add_enabled(
-                        false,
-                        egui::Button::new(RichText::new("Export")).min_size(vec2(88.0, 28.0)),
-                    );
-                    let _ =
-                        export_button.on_disabled_hover_text("An encoder is not implemented yet.");
-                    ui.add_space(6.0);
-                    if ui
-                        .add(egui::Button::new("Cancel").min_size(vec2(78.0, 28.0)))
-                        .clicked()
-                    {
-                        close_requested = true;
-                    }
+                            .size(8.5)
+                            .color(Palette::TEXT_DISABLED),
+                        );
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let export_button = ui.add_enabled(
+                                false,
+                                egui::Button::new(
+                                    RichText::new("Export")
+                                        .size(11.0)
+                                        .color(Palette::TEXT_DISABLED),
+                                )
+                                .fill(Palette::ACCENT_BG)
+                                .min_size(vec2(84.0, 28.0)),
+                            );
+                            let _ = export_button
+                                .on_disabled_hover_text("An encoder is not implemented yet.");
+                            ui.add_space(6.0);
+                            if ui
+                                .add(
+                                    egui::Button::new(RichText::new("Cancel").size(11.0))
+                                        .min_size(vec2(76.0, 28.0)),
+                                )
+                                .clicked()
+                            {
+                                close_requested = true;
+                            }
+                        });
+                    });
                 });
-            });
         });
 
     if close_requested || modal.should_close() {
@@ -141,172 +144,147 @@ pub fn show(context: &Context, session: &mut EditorSession) {
     }
 }
 
-fn preview_panel(ui: &mut Ui, session: &EditorSession, body_height: f32) {
-    Frame::new()
-        .fill(Palette::CARD_BG)
-        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(6))
-        .inner_margin(Margin::same(12))
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.set_min_height((body_height - 24.0).max(200.0));
-            ui.horizontal(|ui| {
-                common::section_heading(ui, "Output preview");
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    common::badge(ui, "Placeholder", Palette::WARNING);
-                });
-            });
-            ui.add_space(7.0);
+fn cover_panel(ui: &mut Ui, session: &EditorSession, body_height: f32) {
+    ui.set_min_height(body_height);
+    let width = ui.available_width();
+    let cover_height = (width * 16.0 / 9.0).min(body_height - 92.0).max(160.0);
+    let (cover, _) = ui.allocate_exact_size(vec2(width, cover_height), Sense::hover());
+    let painter = ui.painter_at(cover);
+    painter.rect_filled(cover, CornerRadius::same(5), Palette::CANVAS);
+    painter.rect_stroke(
+        cover,
+        CornerRadius::same(5),
+        Stroke::new(1.0, Palette::BORDER_SUBTLE),
+        StrokeKind::Inside,
+    );
 
-            let canvas_height = (ui.available_height() - 68.0).max(100.0);
-            let (area, _) =
-                ui.allocate_exact_size(vec2(ui.available_width(), canvas_height), Sense::hover());
-            let canvas = fit_preview_rect(area.shrink(4.0), 16.0 / 9.0);
-            let painter = ui.painter_at(area);
+    let (width_px, height_px) = session.preview_aspect.dimensions();
+    painter.text(
+        cover.left_top() + vec2(9.0, 7.0),
+        Align2::LEFT_TOP,
+        "COVER",
+        egui::FontId::proportional(7.5),
+        Palette::TEXT_DISABLED,
+    );
+    painter.text(
+        cover.right_top() + vec2(-9.0, 7.0),
+        Align2::RIGHT_TOP,
+        format!("{width_px}\u{00d7}{height_px}"),
+        egui::FontId::monospace(7.5),
+        Palette::TEXT_DISABLED,
+    );
+    painter.text(
+        cover.center() - vec2(0.0, 7.0),
+        Align2::CENTER_CENTER,
+        "No cover preview",
+        egui::FontId::proportional(10.5),
+        Palette::TEXT_MUTED,
+    );
+    painter.text(
+        cover.center() + vec2(0.0, 9.0),
+        Align2::CENTER_CENTER,
+        "Rendered frames are not implemented",
+        egui::FontId::proportional(8.0),
+        Palette::TEXT_DISABLED,
+    );
 
-            if canvas.width() > 0.5 && canvas.height() > 0.5 {
-                painter.rect_filled(canvas, CornerRadius::same(2), Palette::CANVAS);
-                painter.rect_stroke(
-                    canvas,
-                    CornerRadius::same(2),
-                    Stroke::new(1.0, Palette::BORDER),
-                    StrokeKind::Inside,
-                );
-                if canvas.height() > 50.0 {
-                    painter.text(
-                        canvas.center() + vec2(0.0, -7.0),
-                        Align2::CENTER_CENTER,
-                        "No preview available",
-                        egui::FontId::proportional(13.0),
-                        Palette::TEXT_MUTED,
-                    );
-                }
-                if canvas.height() > 76.0 {
-                    painter.text(
-                        canvas.center() + vec2(0.0, 11.0),
-                        Align2::CENTER_CENTER,
-                        "Rendered output preview is not implemented",
-                        egui::FontId::proportional(9.0),
-                        Palette::TEXT_DISABLED,
-                    );
-                }
-            }
-
-            ui.add_space(7.0);
-            let settings = &session.export_settings;
-            ui.label(
-                RichText::new(&settings.filename)
-                    .size(10.0)
-                    .strong()
-                    .color(Palette::TEXT_SECONDARY),
-            );
-            ui.label(
-                RichText::new(format!(
-                    "{} \u{00b7} {} \u{00b7} {} \u{00b7} {}",
-                    settings.resolution.label(),
-                    settings.frame_rate.label(),
-                    settings.format_label(),
-                    if settings.include_audio {
-                        "audio on"
-                    } else {
-                        "video only"
-                    }
-                ))
-                .size(9.0)
-                .color(Palette::TEXT_MUTED),
-            );
-        });
+    ui.add_space(8.0);
+    ui.label(
+        RichText::new("Cover")
+            .size(10.0)
+            .strong()
+            .color(Palette::TEXT_SECONDARY),
+    );
+    ui.label(
+        RichText::new("Placeholder \u{00b7} no rendered frame")
+            .size(8.0)
+            .color(Palette::TEXT_DISABLED),
+    );
+    ui.add_space(6.0);
+    let edit = ui.add_enabled(
+        false,
+        egui::Button::new(RichText::new("Edit cover").size(10.0))
+            .min_size(vec2(ui.available_width(), 26.0)),
+    );
+    let _ = edit.on_disabled_hover_text("Cover editing is not implemented.");
+    ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+        ui.add(
+            Label::new(
+                RichText::new("Cover and file-size estimates are not fabricated.")
+                    .size(8.0)
+                    .color(Palette::TEXT_DISABLED),
+            )
+            .wrap(),
+        );
+    });
 }
 
 fn form(ui: &mut Ui, session: &mut EditorSession) {
     let settings = &mut session.export_settings;
 
-    form_section(ui, "File");
-    common::field_label(ui, "Output name");
-    ui.add(
-        TextEdit::singleline(&mut settings.filename)
-            .desired_width(ui.available_width())
-            .char_limit(MAX_FILENAME_CHARS)
-            .hint_text("cutcraft-export.mp4"),
-    );
-    ui.add_space(5.0);
-    common::field_label(ui, "Destination");
+    form_row(ui, "Export timeline", |ui| {
+        let width = ui.available_width().min(190.0);
+        let _ = controls::disabled_select(ui, "Timeline 01", width);
+    });
+
     ui.horizontal(|ui| {
-        let browse_width = 78.0;
-        let field_width = (ui.available_width() - browse_width - 8.0).max(120.0);
+        ui.add_sized(
+            vec2(92.0, 24.0),
+            Label::new(
+                RichText::new("Name")
+                    .size(10.0)
+                    .color(Palette::TEXT_SECONDARY),
+            )
+            .truncate(),
+        );
+        ui.add(
+            TextEdit::singleline(&mut settings.filename)
+                .desired_width(ui.available_width())
+                .char_limit(MAX_FILENAME_CHARS)
+                .hint_text("cutcraft-export.mp4"),
+        );
+    });
+
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            vec2(92.0, 24.0),
+            Label::new(
+                RichText::new("Export to")
+                    .size(10.0)
+                    .color(Palette::TEXT_SECONDARY),
+            )
+            .truncate(),
+        );
+        let browse_width = 70.0;
+        let field_width = (ui.available_width() - browse_width - 6.0).max(100.0);
         ui.add(
             TextEdit::singleline(&mut settings.directory)
                 .desired_width(field_width)
-                .hint_text("Select or type a folder"),
+                .hint_text("Select a folder"),
         );
         let browse = ui.add_enabled(
             false,
-            egui::Button::new(RichText::new("Browse\u{2026}").size(10.0)),
+            egui::Button::new(RichText::new("Browse").size(9.5)).min_size(vec2(browse_width, 22.0)),
         );
         let _ = browse.on_disabled_hover_text("A native folder picker is not implemented.");
     });
 
-    ui.add_space(10.0);
-    form_section(ui, "Format");
+    form_section(ui, "Video settings");
 
-    controls::control_row(ui, "Format", |ui| {
-        ComboBox::from_id_salt("export_format")
-            .selected_text(settings.format.label())
-            .width(140.0)
-            .show_ui(ui, |ui| {
-                for format in ExportFormat::ALL {
-                    ui.selectable_value(&mut settings.format, format, format.label());
-                }
-            });
-    });
-    controls::control_row(ui, "Codec", |ui| {
-        ComboBox::from_id_salt("export_codec")
-            .selected_text(settings.codec.label())
-            .width(140.0)
-            .show_ui(ui, |ui| {
-                for codec in ExportCodec::ALL {
-                    ui.selectable_value(&mut settings.codec, codec, codec.label());
-                }
-            });
-    });
-    controls::control_row(ui, "Resolution", |ui| {
+    setting_row(ui, "Resolution", |ui| {
         ComboBox::from_id_salt("export_resolution")
             .selected_text(settings.resolution.label())
-            .width(140.0)
+            .width(150.0)
             .show_ui(ui, |ui| {
                 for resolution in ExportResolution::ALL {
                     ui.selectable_value(&mut settings.resolution, resolution, resolution.label());
                 }
             });
     });
-    controls::control_row(ui, "Frame rate", |ui| {
-        ComboBox::from_id_salt("export_frame_rate")
-            .selected_text(settings.frame_rate.label())
-            .width(140.0)
-            .show_ui(ui, |ui| {
-                for frame_rate in ExportFrameRate::ALL {
-                    ui.selectable_value(&mut settings.frame_rate, frame_rate, frame_rate.label());
-                }
-            });
-    });
-    controls::control_row(ui, "Color space", |ui| {
-        let (width, height) = settings.resolution.dimensions();
-        ui.label(
-            RichText::new(format!(
-                "{}  \u{00b7}  {width}\u{00d7}{height}",
-                settings.color_space_label()
-            ))
-            .size(9.5)
-            .color(Palette::TEXT_MUTED),
-        );
-    });
-
-    ui.add_space(10.0);
-    form_section(ui, "Video");
-    controls::control_row(ui, "Bitrate", |ui| {
+    setting_row(ui, "Bitrate", |ui| {
         ComboBox::from_id_salt("export_bitrate")
             .selected_text(settings.bitrate.label())
-            .width(140.0)
+            .width(150.0)
             .show_ui(ui, |ui| {
                 for preset in BitratePreset::ALL {
                     ui.selectable_value(&mut settings.bitrate, preset, preset.label());
@@ -314,7 +292,7 @@ fn form(ui: &mut Ui, session: &mut EditorSession) {
             });
     });
     if settings.bitrate == BitratePreset::Custom {
-        controls::control_row(ui, "Custom", |ui| {
+        setting_row(ui, "Custom bitrate", |ui| {
             ui.add(
                 DragValue::new(&mut settings.custom_bitrate_kbps)
                     .range(CUSTOM_BITRATE_MIN_KBPS..=CUSTOM_BITRATE_MAX_KBPS)
@@ -322,46 +300,135 @@ fn form(ui: &mut Ui, session: &mut EditorSession) {
             );
         });
     }
+    setting_row(ui, "Codec", |ui| {
+        ComboBox::from_id_salt("export_codec")
+            .selected_text(settings.codec.label())
+            .width(150.0)
+            .show_ui(ui, |ui| {
+                for codec in ExportCodec::ALL {
+                    ui.selectable_value(&mut settings.codec, codec, codec.label());
+                }
+            });
+    });
+    setting_row(ui, "Format", |ui| {
+        ComboBox::from_id_salt("export_format")
+            .selected_text(settings.format.label())
+            .width(150.0)
+            .show_ui(ui, |ui| {
+                for format in ExportFormat::ALL {
+                    ui.selectable_value(&mut settings.format, format, format.label());
+                }
+            });
+    });
+    setting_row(ui, "Frame rate", |ui| {
+        ComboBox::from_id_salt("export_frame_rate")
+            .selected_text(settings.frame_rate.label())
+            .width(150.0)
+            .show_ui(ui, |ui| {
+                for frame_rate in ExportFrameRate::ALL {
+                    ui.selectable_value(&mut settings.frame_rate, frame_rate, frame_rate.label());
+                }
+            });
+    });
+    setting_row(ui, "Color space", |ui| {
+        ui.label(
+            RichText::new(settings.color_space_label())
+                .size(10.0)
+                .color(Palette::TEXT_MUTED),
+        );
+    });
 
-    ui.add_space(10.0);
     form_section(ui, "Audio");
     ui.checkbox(&mut settings.include_audio, "Include audio");
+    setting_row(ui, "Audio codec", |ui| {
+        ui.label(
+            RichText::new("AAC \u{00b7} planned")
+                .size(10.0)
+                .color(Palette::TEXT_DISABLED),
+        );
+    });
+    setting_row(ui, "Sample rate", |ui| {
+        ui.label(
+            RichText::new("48 kHz \u{00b7} planned")
+                .size(10.0)
+                .color(Palette::TEXT_DISABLED),
+        );
+    });
+    ui.add_space(4.0);
 
-    ui.add_space(10.0);
-    form_section(ui, "Validation");
+    ui.add_space(8.0);
     let issues = settings.issues();
     if issues.is_empty() {
         ui.label(
-            RichText::new("The form is complete. Encoding is still unavailable.")
-                .size(9.0)
+            RichText::new("Form values are complete. Encoding is still unavailable.")
+                .size(8.5)
                 .color(Palette::TEXT_MUTED),
         );
     } else {
         for issue in issues {
             ui.label(
                 RichText::new(format!("\u{2013} {}", issue.message()))
-                    .size(9.0)
+                    .size(8.5)
                     .color(Palette::WARNING),
             );
         }
     }
-
-    ui.add_space(5.0);
+    ui.add_space(4.0);
     ui.add(
         Label::new(
             RichText::new(
-                "H.264 in MP4 is the only format pair exposed by this UI. No file is \
-                 created and no output size is estimated.",
+                "H.264 in MP4 is the only format pair exposed. No file is created and no \
+                 output size is estimated.",
             )
-            .size(8.5)
+            .size(8.0)
             .color(Palette::TEXT_DISABLED),
         )
         .wrap(),
     );
 }
 
+fn setting_row(ui: &mut Ui, label: &str, add_control: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            vec2(92.0, 24.0),
+            Label::new(
+                RichText::new(label)
+                    .size(10.0)
+                    .color(Palette::TEXT_SECONDARY),
+            )
+            .truncate(),
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            add_control(ui);
+        });
+    });
+}
+
+fn form_row(ui: &mut Ui, label: &str, add_control: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            vec2(92.0, 24.0),
+            Label::new(
+                RichText::new(label)
+                    .size(10.0)
+                    .color(Palette::TEXT_SECONDARY),
+            )
+            .truncate(),
+        );
+        add_control(ui);
+    });
+}
+
 fn form_section(ui: &mut Ui, title: &str) {
-    common::section_heading(ui, title);
+    ui.add_space(10.0);
+    ui.label(
+        RichText::new(title)
+            .size(10.5)
+            .strong()
+            .color(Palette::TEXT_PRIMARY),
+    );
+    ui.add_space(3.0);
+    ui.separator();
     ui.add_space(2.0);
 }
 
@@ -380,6 +447,7 @@ mod tests {
     #[test]
     fn export_dialog_renders_settings_without_enabling_export() {
         let context = Context::default();
+        crate::theme::configure(&context);
         let mut session = EditorSession {
             export_open: true,
             ..EditorSession::default()
@@ -397,8 +465,8 @@ mod tests {
         }
 
         assert!(text.iter().any(|line| line == "Export"));
-        assert!(text.iter().any(|line| line == "OUTPUT NAME"));
-        assert!(text.iter().any(|line| line == "FORMAT"));
+        assert!(text.iter().any(|line| line == "Name"));
+        assert!(text.iter().any(|line| line == "Video settings"));
         assert!(text.iter().any(|line| line == "Codec"));
         assert!(text.iter().any(|line| line == "Cancel"));
         assert!(session.export_open);

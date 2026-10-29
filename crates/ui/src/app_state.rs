@@ -353,7 +353,7 @@ mod tests {
         state.create_temporary_project();
 
         let session = state.session().expect("new session should exist");
-        assert_eq!(session.active_tool, EditorTool::Media);
+        assert_eq!(session.active_tool, EditorTool::Captions);
         assert!(!session.export_open);
         assert_eq!(state.screen(), Screen::Editor);
     }
