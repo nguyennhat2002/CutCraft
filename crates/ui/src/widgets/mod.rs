@@ -10,6 +10,7 @@ pub mod inspector;
 pub mod layout;
 pub mod media_pool;
 pub mod menu_bar;
+pub(crate) mod panel;
 pub mod preview;
 pub mod status_bar;
 pub mod timeline;
