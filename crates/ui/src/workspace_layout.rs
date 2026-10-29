@@ -123,8 +123,8 @@ pub fn timeline_heights(available_height: f32) -> TimelineHeights {
         config::TIMELINE_DEFAULT_HEIGHT
     };
     let min = config::TIMELINE_MIN_HEIGHT;
-    let max = (available * 0.48).max(min).min(config::TIMELINE_MAX_HEIGHT);
-    let default = (available * 0.44).clamp(min, max);
+    let max = (available * 0.52).max(min).min(config::TIMELINE_MAX_HEIGHT);
+    let default = (available * 0.48).clamp(min, max);
 
     TimelineHeights { default, min, max }
 }
@@ -150,17 +150,23 @@ mod tests {
 
     #[test]
     fn reference_viewport_uses_33_29_38_columns() {
-        let widths = workspace_widths(1600.0, true, true, 0.33, 0.38);
+        let widths = workspace_widths(
+            1600.0,
+            true,
+            true,
+            config::WORKSPACE_LEFT_FRACTION,
+            config::WORKSPACE_RIGHT_FRACTION,
+        );
 
-        assert_close(widths.left, 528.0);
-        assert_close(widths.right, 608.0);
-        assert_close(widths.center, 464.0);
+        assert_close(widths.left, 536.0);
+        assert_close(widths.right, 601.6);
+        assert_close(widths.center, 462.4);
         assert_close(widths.total(), 1600.0);
     }
 
     #[test]
     fn smaller_window_preserves_a_usable_center_column() {
-        let widths = workspace_widths(960.0, true, true, 0.33, 0.38);
+        let widths = workspace_widths(960.0, true, true, 0.335, 0.376);
 
         assert!(widths.center >= config::WORKSPACE_CENTER_MIN_WIDTH - 1.0);
         assert!(widths.left >= config::WORKSPACE_LEFT_MIN_WIDTH);
@@ -170,18 +176,18 @@ mod tests {
 
     #[test]
     fn hidden_panels_expand_the_center() {
-        let both_hidden = workspace_widths(1600.0, false, false, 0.33, 0.38);
+        let both_hidden = workspace_widths(1600.0, false, false, 0.335, 0.376);
         assert_eq!(both_hidden.center, 1600.0);
         assert_eq!(both_hidden.left + both_hidden.right, 0.0);
 
-        let only_left = workspace_widths(1600.0, true, false, 0.33, 0.38);
-        assert_close(only_left.left, 528.0);
-        assert_close(only_left.center, 1072.0);
+        let only_left = workspace_widths(1600.0, true, false, 0.335, 0.376);
+        assert_close(only_left.left, 536.0);
+        assert_close(only_left.center, 1064.0);
         assert_eq!(only_left.right, 0.0);
 
-        let only_right = workspace_widths(1600.0, false, true, 0.33, 0.38);
-        assert_close(only_right.right, 608.0);
-        assert_close(only_right.center, 992.0);
+        let only_right = workspace_widths(1600.0, false, true, 0.335, 0.376);
+        assert_close(only_right.right, 601.6);
+        assert_close(only_right.center, 998.4);
         assert_eq!(only_right.left, 0.0);
     }
 
@@ -199,12 +205,12 @@ mod tests {
     #[test]
     fn timeline_height_tracks_available_space() {
         let reference = timeline_heights(828.0);
-        assert_close(reference.default, 364.32);
-        assert_close(reference.max, 397.44);
+        assert_close(reference.default, 397.44);
+        assert_close(reference.max, 430.56);
 
         let compact = timeline_heights(648.0);
-        assert_close(compact.default, 285.12);
-        assert_close(compact.max, 311.04);
+        assert_close(compact.default, 311.04);
+        assert_close(compact.max, 336.96);
         assert!(compact.default >= config::TIMELINE_MIN_HEIGHT);
     }
 }

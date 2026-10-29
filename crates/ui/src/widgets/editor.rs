@@ -36,6 +36,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                 .frame(
                     Frame::new()
                         .fill(Palette::PANEL_BG)
+                        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
                         .inner_margin(Margin::symmetric(10, 6)),
                 )
                 .show(ui, |ui| timeline::show(ui, session));
@@ -84,7 +85,7 @@ fn show_workspace(ui: &mut Ui, session: &mut EditorSession) {
                 widths.left,
                 height,
                 Palette::PANEL_BG,
-                Margin::symmetric(10, 8),
+                Margin::ZERO,
                 |ui| media_pool::show(ui, session),
             );
             splitter(
@@ -100,8 +101,8 @@ fn show_workspace(ui: &mut Ui, session: &mut EditorSession) {
             ui,
             widths.center,
             height,
-            Palette::APP_BG,
-            Margin::same(8),
+            Palette::PANEL_BG,
+            Margin::ZERO,
             |ui| preview::show(ui, session),
         );
 
@@ -118,7 +119,7 @@ fn show_workspace(ui: &mut Ui, session: &mut EditorSession) {
                 widths.right,
                 height,
                 Palette::PANEL_BG,
-                Margin::symmetric(12, 8),
+                Margin::ZERO,
                 |ui| inspector::show(ui, session),
             );
         }

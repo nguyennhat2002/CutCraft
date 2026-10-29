@@ -29,7 +29,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
         .exact_size(config::EDITOR_TOP_BAR_HEIGHT)
         .frame(
             Frame::new()
-                .fill(Palette::TOOLBAR_BG)
+                .fill(Palette::MENU_BG)
                 .inner_margin(Margin::symmetric(10, 0)),
         )
         .show(ui, |ui| {
@@ -43,13 +43,13 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
                 toolbar_separator(ui);
 
                 ui.allocate_ui_with_layout(
-                    vec2(150.0, 22.0),
+                    vec2((ui.available_width() * 0.24).clamp(110.0, 190.0), 22.0),
                     Layout::left_to_right(Align::Center),
                     |ui| {
                         ui.add(
                             Label::new(
                                 RichText::new(&session.project_name)
-                                    .size(13.0)
+                                    .size(12.5)
                                     .strong()
                                     .color(Palette::TEXT_PRIMARY),
                             )
@@ -59,7 +59,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
                     },
                 );
                 ui.allocate_ui_with_layout(
-                    vec2(78.0, 22.0),
+                    vec2(68.0, 22.0),
                     Layout::left_to_right(Align::Center),
                     |ui| {
                         let _ = common::badge(ui, "Not saved", Palette::WARNING).on_hover_text(
@@ -69,15 +69,12 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
                 );
 
                 ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(6.0);
-
                 if menu_bar::show_menus(ui, session) {
                     action = TopBarAction::Home;
                 }
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if common::primary_button(ui, "Export", 76.0).clicked() {
+                    if common::primary_button(ui, "Export", 70.0).clicked() {
                         action = TopBarAction::Export;
                     }
                     ui.add_space(6.0);
@@ -99,7 +96,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
 }
 
 fn home_button(ui: &mut Ui) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(64.0, 28.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(58.0, 28.0), Sense::click());
     let hovered = response.hovered();
     if hovered {
         ui.painter()
@@ -107,7 +104,7 @@ fn home_button(ui: &mut Ui) -> Response {
     }
 
     let icon_rect =
-        Rect::from_center_size(pos2(rect.left() + 15.0, rect.center().y), vec2(14.0, 14.0));
+        Rect::from_center_size(pos2(rect.left() + 12.0, rect.center().y), vec2(13.0, 13.0));
     icons::paint(
         ui.painter(),
         icon_rect,
@@ -119,16 +116,18 @@ fn home_button(ui: &mut Ui) -> Response {
         },
     );
     ui.painter().text(
-        pos2(rect.left() + 28.0, rect.center().y),
+        pos2(rect.left() + 23.0, rect.center().y),
         Align2::LEFT_CENTER,
         "Home",
-        FontId::proportional(11.5),
+        FontId::proportional(11.0),
         if hovered {
             Palette::TEXT_PRIMARY
         } else {
             Palette::TEXT_SECONDARY
         },
     );
+
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::accesskit::Role::Button, true, "Home"));
 
     response
         .on_hover_cursor(CursorIcon::PointingHand)

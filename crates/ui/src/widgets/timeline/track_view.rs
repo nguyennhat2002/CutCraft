@@ -15,7 +15,12 @@ pub struct TrackDescriptor {
     pub kind: TrackKind,
 }
 
-const TRACKS: [TrackDescriptor; 4] = [
+const TRACKS: [TrackDescriptor; 6] = [
+    TrackDescriptor {
+        label: "V3",
+        name: "Video 3",
+        kind: TrackKind::Video,
+    },
     TrackDescriptor {
         label: "V2",
         name: "Video 2",
@@ -36,6 +41,11 @@ const TRACKS: [TrackDescriptor; 4] = [
         name: "Audio 2",
         kind: TrackKind::Audio,
     },
+    TrackDescriptor {
+        label: "A3",
+        name: "Audio 3",
+        kind: TrackKind::Audio,
+    },
 ];
 
 pub fn tracks() -> &'static [TrackDescriptor] {
@@ -47,15 +57,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shell_has_two_video_and_two_audio_tracks() {
+    fn shell_has_three_video_and_three_audio_tracks() {
         let tracks = tracks();
 
-        assert_eq!(tracks.len(), 4);
+        assert_eq!(tracks.len(), 6);
         assert_eq!(tracks[0].kind, TrackKind::Video);
-        assert_eq!(tracks[1].kind, TrackKind::Video);
-        assert_eq!(tracks[2].kind, TrackKind::Audio);
+        assert_eq!(tracks[2].kind, TrackKind::Video);
         assert_eq!(tracks[3].kind, TrackKind::Audio);
-        assert_eq!(tracks[0].label, "V2");
-        assert_eq!(tracks[2].label, "A1");
+        assert_eq!(tracks[5].kind, TrackKind::Audio);
+        assert_eq!(tracks[0].label, "V3");
+        assert_eq!(tracks[3].label, "A1");
     }
 }

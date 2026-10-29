@@ -71,25 +71,6 @@ pub fn primary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
     .on_hover_cursor(CursorIcon::PointingHand)
 }
 
-/// Rounded dark card used by homepage sections and export panels.
-pub fn card_frame() -> Frame {
-    Frame::new()
-        .fill(Palette::CARD_BG)
-        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::same(18))
-}
-
-/// Small uppercase form label.
-pub fn field_label(ui: &mut Ui, text: &str) {
-    ui.label(
-        RichText::new(text.to_ascii_uppercase())
-            .size(9.5)
-            .strong()
-            .color(Palette::TEXT_MUTED),
-    );
-}
-
 /// Compact bordered empty state for narrow side panels.
 pub fn compact_empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str) {
     Frame::new()

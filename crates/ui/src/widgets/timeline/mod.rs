@@ -25,7 +25,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
     ui.horizontal(|ui| {
         common::section_heading(ui, "Timeline");
         ui.add_space(3.0);
-        common::badge(ui, "Empty", Palette::TEXT_MUTED);
+        common::badge(ui, "Demo", Palette::WARNING);
         ui.add_space(3.0);
         ui.separator();
         ui.add_space(3.0);
@@ -60,7 +60,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
             ui.add_space(4.0);
             ui.label(
                 RichText::new(format!(
-                    "{} s \u{00b7} 0 clips",
+                    "{} s \u{00b7} demo only",
                     config::TIMELINE_DURATION_SECONDS
                 ))
                 .size(9.5)
@@ -95,10 +95,12 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
     ui.add_space(6.0);
 
     let tracks = track_view::tracks();
-    let tracks_height =
-        config::TIMELINE_RULER_HEIGHT + config::TIMELINE_TRACK_HEIGHT * tracks.len() as f32;
     let available_body_height = ui.available_height().max(0.0);
-    let content_height = (available_body_height - 16.0).max(tracks_height);
+    let track_height = ((available_body_height - 16.0 - config::TIMELINE_RULER_HEIGHT)
+        / tracks.len() as f32)
+        .clamp(20.0, 58.0);
+    let tracks_height = config::TIMELINE_RULER_HEIGHT + track_height * tracks.len() as f32;
+    let content_height = tracks_height.max((available_body_height - 14.0).max(0.0));
     let scale = TimelineScale::new(
         session.timeline_pixels_per_second,
         config::TIMELINE_LEADING_PADDING,
@@ -111,7 +113,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
             vec2(config::TRACK_HEADER_WIDTH, content_height),
             Sense::hover(),
         );
-        paint_track_headers(ui, header_rect);
+        paint_track_headers(ui, header_rect, track_height);
 
         let _ = ScrollArea::horizontal()
             .id_salt("timeline_horizontal_scroll")
@@ -126,12 +128,18 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
                     ),
                     Sense::hover(),
                 );
-                paint_timeline_content(ui, content_rect, &scale, config::TIMELINE_DURATION_SECONDS);
+                paint_timeline_content(
+                    ui,
+                    content_rect,
+                    &scale,
+                    config::TIMELINE_DURATION_SECONDS,
+                    track_height,
+                );
             });
     });
 }
 
-fn paint_track_headers(ui: &Ui, rect: Rect) {
+fn paint_track_headers(ui: &Ui, rect: Rect, track_height: f32) {
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, CornerRadius::same(3), Palette::TRACK_HEADER_BG);
 
@@ -154,7 +162,7 @@ fn paint_track_headers(ui: &Ui, rect: Rect) {
     );
 
     for (index, track) in track_view::tracks().iter().enumerate() {
-        let row = track_row_rect(rect, index);
+        let row = track_row_rect(rect, index, track_height);
         let stripe_color = match track.kind {
             TrackKind::Video => Palette::ACCENT,
             TrackKind::Audio => Palette::WARNING,
@@ -170,21 +178,21 @@ fn paint_track_headers(ui: &Ui, rect: Rect) {
             stripe_color,
         );
         painter.text(
-            pos2(row.left() + 13.0, row.top() + 16.0),
+            pos2(row.left() + 13.0, row.center().y - 6.0),
             Align2::LEFT_CENTER,
             track.label,
             FontId::monospace(10.5),
             Palette::TEXT_PRIMARY,
         );
         painter.text(
-            pos2(row.left() + 42.0, row.top() + 16.0),
+            pos2(row.left() + 42.0, row.center().y - 6.0),
             Align2::LEFT_CENTER,
             track.name,
             FontId::proportional(10.5),
             Palette::TEXT_SECONDARY,
         );
         painter.text(
-            pos2(row.left() + 42.0, row.top() + 32.0),
+            pos2(row.left() + 42.0, row.center().y + 8.0),
             Align2::LEFT_CENTER,
             match track.kind {
                 TrackKind::Video => "Video track",
@@ -216,7 +224,13 @@ fn paint_track_headers(ui: &Ui, rect: Rect) {
     );
 }
 
-fn paint_timeline_content(ui: &Ui, rect: Rect, scale: &TimelineScale, duration_seconds: u64) {
+fn paint_timeline_content(
+    ui: &Ui,
+    rect: Rect,
+    scale: &TimelineScale,
+    duration_seconds: u64,
+    track_height: f32,
+) {
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, CornerRadius::same(3), Palette::TRACK_BG);
 
@@ -225,7 +239,7 @@ fn paint_timeline_content(ui: &Ui, rect: Rect, scale: &TimelineScale, duration_s
     painter.rect_filled(ruler_rect, CornerRadius::same(3), Palette::RULER_BG);
 
     for (index, track) in track_view::tracks().iter().enumerate() {
-        let row = track_row_rect(rect, index);
+        let row = track_row_rect(rect, index, track_height);
         if index % 2 == 1 {
             painter.rect_filled(row, CornerRadius::ZERO, Palette::TRACK_ALT_BG);
         }
@@ -233,25 +247,31 @@ fn paint_timeline_content(ui: &Ui, rect: Rect, scale: &TimelineScale, duration_s
             [pos2(row.left(), row.top()), pos2(row.right(), row.top())],
             Stroke::new(1.0, Palette::BORDER_SUBTLE),
         );
-        painter.text(
-            pos2(row.left() + scale.leading_padding() + 12.0, row.center().y),
-            Align2::LEFT_CENTER,
-            match track.kind {
-                TrackKind::Video => "No clips \u{2014} video lane",
-                TrackKind::Audio => "No clips \u{2014} audio lane",
-            },
-            FontId::proportional(9.5),
-            Palette::TEXT_DISABLED,
-        );
+        let has_demo = demo_clip(index).is_some();
+        if !has_demo {
+            painter.text(
+                pos2(row.left() + scale.leading_padding() + 12.0, row.center().y),
+                Align2::LEFT_CENTER,
+                match track.kind {
+                    TrackKind::Video => "No clips \u{2014} video lane",
+                    TrackKind::Audio => "No clips \u{2014} audio lane",
+                },
+                FontId::proportional(9.5),
+                Palette::TEXT_DISABLED,
+            );
+        }
     }
 
+    paint_demo_clips(&painter, rect, scale, track_height);
+
     let content_left = rect.left();
+    let viewport = painter.clip_rect();
     let intervals = scale.ticks(duration_seconds);
     let interval_seconds = scale.major_tick_interval() as f64;
 
     for second in &intervals {
         let x = content_left + scale.x_for_seconds(*second as f64);
-        if x < rect.left() || x > rect.right() {
+        if x < viewport.left() || x > viewport.right() {
             continue;
         }
 
@@ -267,13 +287,15 @@ fn paint_timeline_content(ui: &Ui, rect: Rect, scale: &TimelineScale, duration_s
             Stroke::new(1.0, Palette::BORDER),
         );
 
-        for step in 1..5 {
-            let minor_x = content_left
-                + scale.x_for_seconds(*second as f64 + interval_seconds * step as f64 / 5.0);
-            if minor_x > rect.left() && minor_x < rect.right() {
+        let subdivisions = if interval_seconds <= 2.0 { 4 } else { 10 };
+        for step in 1..subdivisions {
+            let minor_seconds =
+                *second as f64 + interval_seconds * step as f64 / f64::from(subdivisions);
+            let minor_x = content_left + scale.x_for_seconds(minor_seconds);
+            if minor_x > viewport.left() && minor_x < viewport.right() {
                 painter.line_segment(
                     [
-                        pos2(minor_x, ruler_rect.bottom() - 3.0),
+                        pos2(minor_x, ruler_rect.bottom() - 4.0),
                         pos2(minor_x, ruler_rect.bottom()),
                     ],
                     Stroke::new(1.0, Palette::BORDER_SUBTLE),
@@ -281,7 +303,7 @@ fn paint_timeline_content(ui: &Ui, rect: Rect, scale: &TimelineScale, duration_s
             }
         }
 
-        if x + 36.0 < rect.right() {
+        if x + 36.0 < viewport.right() {
             painter.text(
                 pos2(x + 4.0, ruler_rect.center().y),
                 Align2::LEFT_CENTER,
@@ -304,16 +326,113 @@ fn paint_timeline_content(ui: &Ui, rect: Rect, scale: &TimelineScale, duration_s
     playhead::paint(&painter, rect.top(), rect.bottom(), playhead_x);
 }
 
-fn track_row_rect(rect: Rect, index: usize) -> Rect {
+fn track_row_rect(rect: Rect, index: usize, track_height: f32) -> Rect {
     Rect::from_min_size(
         pos2(
             rect.left(),
-            rect.top()
-                + config::TIMELINE_RULER_HEIGHT
-                + config::TIMELINE_TRACK_HEIGHT * index as f32,
+            rect.top() + config::TIMELINE_RULER_HEIGHT + track_height * index as f32,
         ),
-        vec2(rect.width(), config::TIMELINE_TRACK_HEIGHT),
+        vec2(rect.width(), track_height),
     )
+}
+
+struct DemoClip {
+    start: f32,
+    end: f32,
+    label: &'static str,
+    audio: bool,
+}
+
+fn demo_clip(track_index: usize) -> Option<DemoClip> {
+    match track_index {
+        1 => Some(DemoClip {
+            start: 2.0,
+            end: 8.0,
+            label: "Demo title",
+            audio: false,
+        }),
+        2 => Some(DemoClip {
+            start: 0.5,
+            end: 14.0,
+            label: "Demo clip \u{00b7} preview only",
+            audio: false,
+        }),
+        3 => Some(DemoClip {
+            start: 0.5,
+            end: 14.0,
+            label: "Demo audio \u{00b7} preview only",
+            audio: true,
+        }),
+        _ => None,
+    }
+}
+
+fn paint_demo_clips(painter: &egui::Painter, rect: Rect, scale: &TimelineScale, track_height: f32) {
+    for index in 0..track_view::tracks().len() {
+        let Some(clip) = demo_clip(index) else {
+            continue;
+        };
+        let row = track_row_rect(rect, index, track_height);
+        let x0 = rect.left() + scale.x_for_seconds(f64::from(clip.start));
+        let x1 = rect.left() + scale.x_for_seconds(f64::from(clip.end));
+        let clip_rect = Rect::from_min_max(pos2(x0, row.top() + 4.0), pos2(x1, row.bottom() - 4.0));
+        if clip_rect.width() < 2.0 {
+            continue;
+        }
+
+        let (fill, border, text) = if clip.audio {
+            (
+                egui::Color32::from_rgb(0x3a, 0x30, 0x1e),
+                egui::Color32::from_rgb(0x6a, 0x54, 0x2a),
+                Palette::WARNING,
+            )
+        } else {
+            (
+                egui::Color32::from_rgb(0x14, 0x3c, 0x40),
+                Palette::ACCENT_DIM,
+                Palette::ACCENT_LIGHT,
+            )
+        };
+        painter.rect_filled(clip_rect, CornerRadius::same(3), fill);
+        painter.rect_stroke(
+            clip_rect,
+            CornerRadius::same(3),
+            Stroke::new(1.0, border),
+            egui::StrokeKind::Inside,
+        );
+        painter.rect_filled(
+            Rect::from_min_size(clip_rect.min, vec2(clip_rect.width(), 2.0)),
+            CornerRadius::same(1),
+            border,
+        );
+        if clip_rect.width() > 42.0 {
+            painter.text(
+                pos2(clip_rect.left() + 7.0, clip_rect.center().y + 1.0),
+                Align2::LEFT_CENTER,
+                clip.label,
+                FontId::proportional(if clip_rect.width() < 80.0 { 8.0 } else { 9.0 }),
+                text,
+            );
+        }
+        if clip_rect.width() > 150.0 {
+            let badge = Rect::from_min_size(
+                pos2(clip_rect.right() - 42.0, clip_rect.top() + 5.0),
+                vec2(37.0, 13.0),
+            );
+            painter.rect_filled(
+                badge,
+                CornerRadius::same(2),
+                egui::Color32::from_black_alpha(70),
+            );
+            painter.text(
+                badge.center(),
+                Align2::CENTER_CENTER,
+                "DEMO",
+                FontId::proportional(7.0),
+                text,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -390,9 +509,13 @@ mod tests {
                     + config::TIMELINE_TRACK_HEIGHT * track_view::tracks().len() as f32,
             ),
         );
-        let first = track_row_rect(rect, 0);
-        let second = track_row_rect(rect, 1);
-        let last = track_row_rect(rect, track_view::tracks().len() - 1);
+        let first = track_row_rect(rect, 0, config::TIMELINE_TRACK_HEIGHT);
+        let second = track_row_rect(rect, 1, config::TIMELINE_TRACK_HEIGHT);
+        let last = track_row_rect(
+            rect,
+            track_view::tracks().len() - 1,
+            config::TIMELINE_TRACK_HEIGHT,
+        );
 
         assert_eq!(first.top(), rect.top() + config::TIMELINE_RULER_HEIGHT);
         assert_eq!(second.top(), first.bottom());

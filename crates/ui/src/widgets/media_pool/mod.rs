@@ -1,4 +1,4 @@
-//! Left library panel with nine tool categories.
+//! Left library panel with ten tool categories.
 //!
 //! Every category has a distinct UI shell. No media is read or generated and
 //! all editing actions are disabled.
@@ -15,84 +15,99 @@ use crate::widgets::controls;
 use crate::widgets::icons::{self, Icon};
 
 pub fn show(ui: &mut Ui, session: &mut EditorSession) {
-    ui.horizontal(|ui| {
-        common::section_heading(ui, "Library");
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            common::badge(ui, "0 assets", Palette::TEXT_MUTED);
-        });
-    });
-
-    ui.add_space(5.0);
-
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing = vec2(2.0, 4.0);
-        ui.horizontal_wrapped(|ui| {
-            for tool in EditorTool::ALL {
-                if category_tab(ui, tool, session.active_tool == tool).clicked() {
-                    session.active_tool = tool;
-                }
-            }
-        });
-    });
-
-    ui.add_space(5.0);
-    ui.separator();
-    ui.add_space(6.0);
-
-    let _ = ScrollArea::vertical()
-        .id_salt("library_scroll")
-        .auto_shrink([false, false])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+    Frame::new()
+        .fill(Palette::TOOLBAR_BG)
+        .inner_margin(Margin::symmetric(8, 5))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(session.active_tool.label())
-                        .size(14.0)
-                        .strong()
-                        .color(Palette::TEXT_PRIMARY),
-                );
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    common::badge(ui, "UI shell", Palette::TEXT_MUTED);
+            ui.set_min_width(ui.available_width());
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                ui.horizontal_wrapped(|ui| {
+                    for tool in EditorTool::ALL {
+                        if category_tab(ui, tool, session.active_tool == tool).clicked() {
+                            session.active_tool = tool;
+                        }
+                    }
                 });
             });
-            ui.add_space(6.0);
-
-            match session.active_tool {
-                EditorTool::Media => media_body(ui),
-                EditorTool::Audio => audio_body(ui),
-                EditorTool::Text => text_body(ui),
-                EditorTool::Stickers => locked_body(
-                    ui,
-                    Icon::Stickers,
-                    "Sticker library",
-                    "Sticker import and rendering are not implemented in this build.",
-                    &["No stickers"],
-                ),
-                EditorTool::Effects => locked_body(
-                    ui,
-                    Icon::Effects,
-                    "Effects library",
-                    "Video effects and filters are not implemented in this build.",
-                    &["No effects"],
-                ),
-                EditorTool::Transitions => locked_body(
-                    ui,
-                    Icon::Transitions,
-                    "Transition library",
-                    "Clip transitions are not implemented in this build.",
-                    &["No transitions"],
-                ),
-                EditorTool::Captions => captions_body(ui),
-                EditorTool::Filters => locked_body(
-                    ui,
-                    Icon::Filters,
-                    "Filter library",
-                    "Color filters are not implemented in this build.",
-                    &["No filters"],
-                ),
-                EditorTool::Adjustment => adjustment_body(ui),
-            }
         });
+    ui.separator();
+
+    let footer_height = if session.active_tool == EditorTool::Captions {
+        42.0
+    } else {
+        0.0
+    };
+    let body_height = (ui.available_height() - footer_height).max(0.0);
+
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), body_height),
+        Layout::top_down(Align::Min),
+        |ui| {
+            let _ = ScrollArea::vertical()
+                .id_salt("library_scroll")
+                .auto_shrink([false, false])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                .show(ui, |ui| {
+                    Frame::new()
+                        .inner_margin(Margin::symmetric(10, 8))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            match session.active_tool {
+                    EditorTool::Media => media_body(ui),
+                    EditorTool::Audio => audio_body(ui),
+                    EditorTool::Text => text_body(ui),
+                    EditorTool::Stickers => locked_body(
+                        ui,
+                        Icon::Stickers,
+                        "Sticker library",
+                        "Sticker import and rendering are not implemented in this build.",
+                        &["Stickers", "Shapes", "Emoji", "Frames", "Masks", "Decals"],
+                    ),
+                    EditorTool::Effects => locked_body(
+                        ui,
+                        Icon::Effects,
+                        "Effects library",
+                        "Video effects and filters are not implemented in this build.",
+                        &["Effects", "Glow", "Blur", "Shake", "Particles", "Distort"],
+                    ),
+                    EditorTool::Transitions => locked_body(
+                        ui,
+                        Icon::Transitions,
+                        "Transition library",
+                        "Clip transitions are not implemented in this build.",
+                        &["Dissolve", "Wipe", "Slide", "Zoom", "Spin", "Fade"],
+                    ),
+                    EditorTool::Captions => captions_body(ui),
+                    EditorTool::Filters => locked_body(
+                        ui,
+                        Icon::Filters,
+                        "Filter library",
+                        "Color filters are not implemented in this build.",
+                        &["Filters", "Warm", "Cool", "Mono", "Vivid", "Soft"],
+                    ),
+                    EditorTool::Adjustment => adjustment_body(ui),
+                    EditorTool::Templates => locked_body(
+                        ui,
+                        Icon::Grid,
+                        "Template library",
+                        "Project and text templates are not implemented in this build.",
+                        &["Templates", "Vertical", "Square", "Text", "Intro", "Outro"],
+                    ),
+                            }
+                        });
+                });
+        },
+    );
+
+    if session.active_tool == EditorTool::Captions {
+        Frame::new()
+            .inner_margin(Margin::symmetric(10, 4))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                caption_footer(ui);
+            });
+    }
 }
 
 fn media_body(ui: &mut Ui) {
@@ -175,26 +190,116 @@ fn text_body(ui: &mut Ui) {
 }
 
 fn captions_body(ui: &mut Ui) {
-    subtab_row(ui, &["Auto", "From file"]);
-    ui.add_space(6.0);
-    let _ = common::disabled_action_button(
-        ui,
-        "Generate captions",
-        "Speech recognition and caption generation are not implemented.",
-    );
-    ui.add_space(6.0);
-    let _ = common::disabled_action_button(
-        ui,
-        "Import captions (.srt)",
-        "Caption file import is not implemented.",
-    );
-    ui.add_space(8.0);
-    common::compact_empty_state(
-        ui,
-        Icon::Captions,
-        "No captions",
-        "Captions require a decoded video and speech processing, which are not available.",
-    );
+    let nav_width = (ui.available_width() * 0.22).clamp(82.0, 108.0);
+    let body_height = ui.available_height().max(180.0);
+    ui.horizontal_top(|ui| {
+        Frame::new()
+            .fill(Palette::PANEL_BG)
+            .inner_margin(Margin::symmetric(4, 4))
+            .show(ui, |ui| {
+                ui.set_min_height((body_height - 8.0).max(0.0));
+                ui.allocate_ui_with_layout(
+                    vec2((nav_width - 8.0).max(60.0), (body_height - 8.0).max(0.0)),
+                    Layout::top_down(Align::Min),
+                    caption_nav,
+                );
+            });
+        ui.add_space(8.0);
+        ui.vertical(|ui| {
+            ui.label(
+                RichText::new("Spoken language")
+                    .size(10.0)
+                    .color(Palette::TEXT_SECONDARY),
+            );
+            ui.add_space(3.0);
+            let width = ui.available_width().max(120.0);
+            let _ = controls::disabled_select(ui, "English", width);
+            ui.add_space(8.0);
+
+            ui.label(
+                RichText::new("Bilingual captions")
+                    .size(10.0)
+                    .color(Palette::TEXT_SECONDARY),
+            );
+            ui.add_space(3.0);
+            let width = ui.available_width().max(120.0);
+            let _ = controls::disabled_select(ui, "None", width);
+            ui.add_space(10.0);
+
+            let _ = controls::disabled_toggle(ui, "Identify filler words", false);
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
+                        "Caption generation is a visual placeholder. No speech recognition or \
+                         media processing is available in this build.",
+                    )
+                    .size(9.0)
+                    .color(Palette::TEXT_DISABLED),
+                )
+                .wrap(),
+            );
+        });
+    });
+}
+
+fn caption_nav(ui: &mut Ui) {
+    ui.set_width(ui.available_width());
+    let items = ["Auto captions", "Templates", "Auto lyrics", "Add captions"];
+    for (index, label) in items.iter().enumerate() {
+        let selected = index == 0;
+        let (rect, response) =
+            ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
+        if selected {
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(3), Palette::ACCENT_BG);
+            ui.painter().rect_filled(
+                Rect::from_min_size(rect.min, vec2(2.0, rect.height())),
+                CornerRadius::same(1),
+                Palette::ACCENT,
+            );
+        }
+        ui.painter().text(
+            pos2(rect.left() + 10.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            *label,
+            FontId::proportional(10.0),
+            if selected {
+                Palette::ACCENT
+            } else {
+                Palette::TEXT_MUTED
+            },
+        );
+        let _ = response.on_hover_text("Caption options are not implemented.");
+    }
+}
+
+fn caption_footer(ui: &mut Ui) {
+    ui.separator();
+    ui.horizontal_centered(|ui| {
+        let _ =
+            common::disabled_icon_button(ui, Icon::Close, "Deleting captions is not implemented.");
+        ui.label(
+            RichText::new("Delete current captions")
+                .size(9.0)
+                .color(Palette::TEXT_DISABLED),
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let generate = ui.add_enabled(
+                false,
+                egui::Button::new(
+                    RichText::new("Generate")
+                        .size(10.0)
+                        .color(Palette::TEXT_DISABLED),
+                )
+                .fill(Palette::ACCENT_BG)
+                .min_size(vec2(74.0, 24.0)),
+            );
+            let _ = generate.on_disabled_hover_text("Caption generation is not implemented.");
+        });
+    });
 }
 
 fn adjustment_body(ui: &mut Ui) {
@@ -259,26 +364,25 @@ fn locked_tile(ui: &mut Ui, width: f32, icon: Icon, label: &str) {
 }
 
 fn category_tab(ui: &mut Ui, tool: EditorTool, selected: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(53.0, 46.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(50.0, 38.0), Sense::click());
     let hovered = response.hovered();
     let painter = ui.painter_at(rect);
 
     if selected {
-        painter.rect_filled(rect, CornerRadius::same(4), Palette::ACCENT_BG);
         painter.rect_filled(
             Rect::from_min_max(
-                pos2(rect.left() + 8.0, rect.bottom() - 2.0),
-                pos2(rect.right() - 8.0, rect.bottom()),
+                pos2(rect.left() + 9.0, rect.bottom() - 2.0),
+                pos2(rect.right() - 9.0, rect.bottom()),
             ),
             CornerRadius::same(1),
             Palette::ACCENT,
         );
     } else if hovered {
-        painter.rect_filled(rect, CornerRadius::same(4), Palette::WIDGET_BG);
+        painter.rect_filled(rect, CornerRadius::same(3), Palette::WIDGET_BG);
     }
 
     let icon_rect =
-        Rect::from_center_size(pos2(rect.center().x, rect.top() + 15.0), vec2(17.0, 17.0));
+        Rect::from_center_size(pos2(rect.center().x, rect.top() + 12.0), vec2(14.0, 14.0));
     icons::paint(
         &painter,
         icon_rect,
@@ -292,12 +396,12 @@ fn category_tab(ui: &mut Ui, tool: EditorTool, selected: bool) -> Response {
         },
     );
     painter.text(
-        pos2(rect.center().x, rect.top() + 34.0),
+        pos2(rect.center().x, rect.top() + 28.0),
         Align2::CENTER_CENTER,
         tool.label(),
-        FontId::proportional(10.0),
+        FontId::proportional(9.0),
         if selected {
-            Palette::TEXT_PRIMARY
+            Palette::ACCENT
         } else {
             Palette::TEXT_MUTED
         },
@@ -319,6 +423,7 @@ fn tool_icon(tool: EditorTool) -> Icon {
         EditorTool::Captions => Icon::Captions,
         EditorTool::Filters => Icon::Filters,
         EditorTool::Adjustment => Icon::Settings,
+        EditorTool::Templates => Icon::Grid,
     }
 }
 
