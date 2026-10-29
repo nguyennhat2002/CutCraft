@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 [dependencies]
+eframe.workspace = true
 capcut-ui.workspace = true
 capcut-engine.workspace = true
 capcut-renderer.workspace = true
