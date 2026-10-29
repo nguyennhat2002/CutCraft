@@ -10,7 +10,8 @@ use crate::config;
 use crate::export_settings::ExportSettings;
 use crate::shortcuts::CommandId;
 use crate::timeline_state::{
-    self, TimelineDisplayMode, TimelineItemId, TimelineSelectionContext, TimelineView,
+    self, ThumbnailMode, TimelineDisplayMode, TimelineItemId, TimelineSelectionContext,
+    TimelineView,
 };
 
 /// Left-panel library categories.
@@ -213,6 +214,10 @@ pub struct EditorSession {
     /// Nonfunctional toolbar preferences; editing behavior is not implemented.
     pub timeline_snapping: bool,
     pub timeline_linked_selection: bool,
+    /// Timeline display preferences; they never mutate project media.
+    pub timeline_show_thumbnails: bool,
+    pub timeline_thumbnail_mode: ThumbnailMode,
+    pub timeline_show_waveforms: bool,
     pub left_panel_fraction: f32,
     pub right_panel_fraction: f32,
 }
@@ -248,6 +253,9 @@ impl Default for EditorSession {
             timeline_selection: BTreeSet::new(),
             timeline_snapping: true,
             timeline_linked_selection: true,
+            timeline_show_thumbnails: true,
+            timeline_thumbnail_mode: ThumbnailMode::Continuous,
+            timeline_show_waveforms: true,
             left_panel_fraction: config::WORKSPACE_LEFT_FRACTION,
             right_panel_fraction: config::WORKSPACE_RIGHT_FRACTION,
         }
@@ -471,6 +479,21 @@ mod tests {
         assert_eq!(InspectorTab::Captions.label(), "Captions");
         assert_eq!(CaptionTab::ALL.len(), 4);
         assert_eq!(CaptionTab::Bubble.label(), "Bubble");
+    }
+
+    #[test]
+    fn timeline_display_preferences_default_to_rich_rendering() {
+        let mut session = EditorSession::default();
+        assert!(session.timeline_show_thumbnails);
+        assert!(session.timeline_show_waveforms);
+        assert_eq!(session.timeline_thumbnail_mode, ThumbnailMode::Continuous);
+
+        session.timeline_show_thumbnails = false;
+        session.timeline_show_waveforms = false;
+        session.timeline_thumbnail_mode = ThumbnailMode::FirstAndLast;
+        assert!(!session.timeline_show_thumbnails);
+        assert!(!session.timeline_show_waveforms);
+        assert_eq!(session.timeline_thumbnail_mode, ThumbnailMode::FirstAndLast);
     }
 
     #[test]

@@ -96,7 +96,7 @@ not pretend to work.
 | D | Voice-over | microphone | PLANNED | none | Disabled |
 | D | Snapping | snap | **UI PREFERENCE** | none | Toggles session preference; editing behavior is not implemented |
 | D | Linked selection | link | **UI PREFERENCE** | none | Toggles session preference; editing behavior is not implemented |
-| D | Timeline settings | list | PLANNED | none | Disabled |
+| D | Timeline display | list | **IMPLEMENTED** | none | Opens thumbnail/waveform display preferences |
 | E | Fit timeline | fit | PLANNED | none | Disabled |
 | E | Zoom out | magnifier − | **IMPLEMENTED** | none | Changes timeline display scale |
 | E | Zoom slider | slider | **IMPLEMENTED** | none | Changes timeline display scale |

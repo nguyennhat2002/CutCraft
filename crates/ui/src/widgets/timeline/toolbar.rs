@@ -12,7 +12,7 @@ use crate::config;
 use crate::editor_state::EditorSession;
 use crate::shortcuts::{CommandId, ShortcutManager};
 use crate::theme::{Palette, Radii};
-use crate::timeline_state::{TimelineDisplayMode, TimelineSelectionKind};
+use crate::timeline_state::{ThumbnailMode, TimelineDisplayMode, TimelineSelectionKind};
 use crate::widgets::common::{self, focus_ring, focus_ring_colored};
 use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
@@ -192,7 +192,7 @@ impl Tool {
             Self::Filters => "Filters are planned.",
             Self::Transitions => "Transitions are planned.",
             Self::Voiceover => "Voice-over recording is not implemented.",
-            Self::Options => "Timeline settings are not implemented.",
+            Self::Options => "Timeline display preferences.",
             Self::FitTimeline => "Fit-to-window is not implemented.",
             Self::Snapping => "Visual preference only. Snapping behavior is not implemented.",
             Self::LinkedSelection => {
@@ -206,7 +206,7 @@ impl Tool {
     pub fn status(self) -> ToolStatus {
         match self {
             Self::Snapping | Self::LinkedSelection => ToolStatus::UiPreference,
-            Self::More | Self::ZoomIn | Self::ZoomOut => ToolStatus::Implemented,
+            Self::More | Self::Options | Self::ZoomIn | Self::ZoomOut => ToolStatus::Implemented,
             Self::Undo | Self::Redo | Self::Split | Self::Delete | Self::Select => {
                 ToolStatus::Disabled
             }
@@ -225,7 +225,6 @@ impl Tool {
             | Self::Filters
             | Self::Transitions
             | Self::Voiceover
-            | Self::Options
             | Self::FitTimeline => ToolStatus::Planned,
         }
     }
@@ -350,7 +349,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                 if density == Density::Compact {
                     more_menu(ui, session, selection_kind, shortcuts);
                 } else {
-                    let _ = disabled_tool(ui, Tool::Options, shortcuts);
+                    display_menu(ui, session);
                 }
                 separator(ui);
                 if toggle_tool(
@@ -640,6 +639,57 @@ fn zoom_controls(
     }
 }
 
+fn display_menu(ui: &mut Ui, session: &mut EditorSession) {
+    let response = enabled_icon_button(ui, Icon::List, Tool::Options.label());
+    let _ = egui::Popup::menu(&response)
+        .id(ui.scope_id().with("timeline_display_menu"))
+        .show(|ui| {
+            ui.set_min_width(236.0);
+            ui.spacing_mut().button_padding = vec2(8.0, 2.0);
+            ui.spacing_mut().interact_size.y = 20.0;
+            display_options(ui, session);
+        });
+}
+
+fn display_options(ui: &mut Ui, session: &mut EditorSession) {
+    menu_heading(ui, "Timeline display");
+    ui.checkbox(
+        &mut session.timeline_show_thumbnails,
+        "Show video thumbnails",
+    );
+    ui.add_enabled_ui(session.timeline_show_thumbnails, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("Thumbnail mode")
+                    .size(10.0)
+                    .color(Palette::TEXT_SECONDARY),
+            );
+            egui::ComboBox::from_id_salt("timeline_thumbnail_mode")
+                .width(118.0)
+                .selected_text(
+                    RichText::new(session.timeline_thumbnail_mode.label())
+                        .size(9.5)
+                        .color(Palette::TEXT_PRIMARY),
+                )
+                .show_ui(ui, |ui| {
+                    for mode in ThumbnailMode::ALL {
+                        ui.selectable_value(
+                            &mut session.timeline_thumbnail_mode,
+                            mode,
+                            mode.label(),
+                        );
+                    }
+                });
+        });
+    });
+    ui.checkbox(&mut session.timeline_show_waveforms, "Show audio waveforms");
+    ui.label(
+        RichText::new("Synthetic content appears only in Visual Demo mode.")
+            .size(8.5)
+            .color(Palette::TEXT_DISABLED),
+    );
+}
+
 fn more_menu(
     ui: &mut Ui,
     session: &mut EditorSession,
@@ -665,8 +715,10 @@ fn more_menu(
                 }
                 ui.separator();
             }
+            display_options(ui, session);
+            ui.separator();
             menu_heading(ui, "Planned timeline tools");
-            for tool in [Tool::Options, Tool::FitTimeline, Tool::Voiceover] {
+            for tool in [Tool::FitTimeline, Tool::Voiceover] {
                 menu_tool(ui, tool, shortcuts);
             }
             if *QA_ENABLED || session.timeline_display_mode == TimelineDisplayMode::VisualDemo {
@@ -781,7 +833,12 @@ mod tests {
         for tool in Tool::ALL {
             if matches!(
                 tool,
-                Tool::Snapping | Tool::LinkedSelection | Tool::More | Tool::ZoomIn | Tool::ZoomOut
+                Tool::Snapping
+                    | Tool::LinkedSelection
+                    | Tool::More
+                    | Tool::Options
+                    | Tool::ZoomIn
+                    | Tool::ZoomOut
             ) {
                 continue;
             }
@@ -806,6 +863,7 @@ mod tests {
         assert_eq!(Tool::LinkedSelection.status(), ToolStatus::UiPreference);
         assert_eq!(Tool::ZoomIn.status(), ToolStatus::Implemented);
         assert_eq!(Tool::More.status(), ToolStatus::Implemented);
+        assert_eq!(Tool::Options.status(), ToolStatus::Implemented);
     }
 
     #[test]

@@ -521,6 +521,9 @@ mod tests {
             session.export_settings.bitrate = BitratePreset::Higher;
             session.timeline_snapping = false;
             session.timeline_linked_selection = false;
+            session.timeline_show_thumbnails = false;
+            session.timeline_show_waveforms = false;
+            session.timeline_thumbnail_mode = crate::timeline_state::ThumbnailMode::FirstAndLast;
         }
 
         state.go_home();
@@ -539,6 +542,12 @@ mod tests {
         assert_eq!(session.export_settings.bitrate, BitratePreset::Higher);
         assert!(!session.timeline_snapping);
         assert!(!session.timeline_linked_selection);
+        assert!(!session.timeline_show_thumbnails);
+        assert!(!session.timeline_show_waveforms);
+        assert_eq!(
+            session.timeline_thumbnail_mode,
+            crate::timeline_state::ThumbnailMode::FirstAndLast
+        );
     }
 
     #[test]
