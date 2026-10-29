@@ -27,8 +27,10 @@ pub const EDITOR_COLUMN_HEADER_HEIGHT: f32 = 38.0;
 /// Height of the global status bar.
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 
-/// Workspace splitter width between the editor columns.
+/// Gap and drag handle between the rounded editor panels.
 pub const WORKSPACE_SPLITTER_WIDTH: f32 = 6.0;
+/// Window-background margin around the editor panel group.
+pub const PANEL_OUTER_MARGIN: f32 = 6.0;
 /// Initial left library panel fraction of the workspace width.
 pub const WORKSPACE_LEFT_FRACTION: f32 = 0.335;
 /// Initial right inspector fraction of the workspace width.
