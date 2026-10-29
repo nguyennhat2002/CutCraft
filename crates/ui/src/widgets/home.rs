@@ -12,7 +12,7 @@ use crate::app_state::{AppState, Screen};
 use crate::config;
 use crate::theme::{Palette, Radii};
 use crate::widgets::common::{self, focus_ring, focus_ring_colored};
-use crate::widgets::icons::{self, Icon};
+use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
 pub fn show(ui: &mut Ui, state: &mut AppState) {
     sidebar(ui, state);
@@ -82,7 +82,7 @@ fn sidebar(ui: &mut Ui, state: &mut AppState) {
             if nav_row(ui, Icon::Projects, "Library", current == Screen::Projects).clicked() {
                 state.go_projects();
             }
-            upcoming_row(ui, Icon::Stickers, "Spaces");
+            upcoming_row(ui, Icon::Spaces, "Spaces");
 
             let bottom_block_height = 140.0;
             ui.add_space((ui.available_height() - bottom_block_height).max(10.0));
@@ -161,15 +161,18 @@ fn nav_row(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Response {
     focus_ring(ui, &response, rect.shrink(1.0), Radii::CONTROL);
 
     let icon_rect =
-        Rect::from_center_size(pos2(rect.left() + 16.0, rect.center().y), vec2(15.0, 15.0));
-    icons::paint(
+        Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(20.0, 20.0));
+    icons::paint_sized(
         ui.painter(),
         icon_rect,
         icon,
+        IconSize::Navigation,
         if selected {
-            Palette::ACCENT_LIGHT
+            IconColors::SELECTED
+        } else if hovered {
+            IconColors::HOVERED
         } else {
-            Palette::TEXT_MUTED
+            IconColors::MUTED
         },
     );
 
@@ -191,8 +194,14 @@ fn nav_row(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Response {
 fn upcoming_row(ui: &mut Ui, icon: Icon, label: &str) {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
     let icon_rect =
-        Rect::from_center_size(pos2(rect.left() + 16.0, rect.center().y), vec2(14.0, 14.0));
-    icons::paint(ui.painter(), icon_rect, icon, Palette::TEXT_DISABLED);
+        Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(16.0, 16.0));
+    icons::paint_sized(
+        ui.painter(),
+        icon_rect,
+        icon,
+        IconSize::Small,
+        IconColors::DISABLED,
+    );
     ui.painter().text(
         pos2(rect.left() + 32.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -370,20 +379,12 @@ fn create_banner(ui: &mut Ui, state: &mut AppState) {
         Radii::CONTROL,
         Color32::from_rgb(0x08, 0x11, 0x13),
     );
-    let plus = Stroke::new(1.6, Palette::ACCENT_LIGHT);
-    painter.line_segment(
-        [
-            pos2(icon_rect.center().x - 5.0, icon_rect.center().y),
-            pos2(icon_rect.center().x + 5.0, icon_rect.center().y),
-        ],
-        plus,
-    );
-    painter.line_segment(
-        [
-            pos2(icon_rect.center().x, icon_rect.center().y - 5.0),
-            pos2(icon_rect.center().x, icon_rect.center().y + 5.0),
-        ],
-        plus,
+    icons::paint_sized(
+        &painter,
+        icon_rect,
+        Icon::Plus,
+        IconSize::Standard,
+        IconColors::HOVERED,
     );
     painter.galley(
         pos2(start_x + icon_size + gap, center_y - galley.size().y / 2.0),
@@ -645,14 +646,15 @@ fn feature_card(
                         Palette::ACCENT_BG
                     },
                 );
-                icons::paint(
+                icons::paint_sized(
                     ui.painter(),
-                    icon_rect.shrink(7.0),
+                    icon_rect,
                     icon,
+                    IconSize::Standard,
                     if featured {
-                        Palette::ACCENT_LIGHT
+                        IconColors::HOVERED
                     } else {
-                        Palette::ACCENT
+                        IconColors::SELECTED
                     },
                 );
                 ui.add_space(10.0);
@@ -808,12 +810,13 @@ fn projects_section(ui: &mut Ui, state: &mut AppState) {
             ui.set_min_height(170.0);
             ui.vertical_centered(|ui| {
                 ui.add_space(14.0);
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
-                icons::paint(
+                let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                icons::paint_sized(
                     ui.painter(),
                     icon_rect,
                     Icon::Folder,
-                    Palette::TEXT_DISABLED,
+                    IconSize::EmptyState,
+                    IconColors::MUTED,
                 );
                 ui.add_space(6.0);
                 ui.label(
@@ -854,11 +857,12 @@ fn current_session_card(ui: &mut Ui, state: &mut AppState, project_name: &str) {
                 let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
                 ui.painter()
                     .rect_filled(icon_rect, Radii::CONTROL, Palette::ACCENT_BG);
-                icons::paint(
+                icons::paint_sized(
                     ui.painter(),
-                    icon_rect.shrink(8.0),
+                    icon_rect,
                     Icon::Media,
-                    Palette::ACCENT,
+                    IconSize::Standard,
+                    IconColors::SELECTED,
                 );
 
                 ui.add_space(4.0);
@@ -929,12 +933,13 @@ fn projects_content(ui: &mut Ui, state: &mut AppState) {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.vertical_centered(|ui| {
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(42.0, 42.0), Sense::hover());
-                icons::paint(
+                let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                icons::paint_sized(
                     ui.painter(),
                     icon_rect,
                     Icon::Folder,
-                    Palette::TEXT_DISABLED,
+                    IconSize::EmptyState,
+                    IconColors::MUTED,
                 );
                 ui.add_space(6.0);
                 ui.label(

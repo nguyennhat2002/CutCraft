@@ -4,7 +4,7 @@ use egui::{pos2, vec2, Align2, CornerRadius, FontId, Painter, Rect, Stroke};
 
 use crate::theme::Palette;
 use crate::timeline_state::{TimelineTrackView, TrackKind};
-use crate::widgets::icons::{self, Icon};
+use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
 pub(super) fn paint_header(painter: &Painter, row: Rect, track: &TimelineTrackView) {
     painter.rect_filled(row, CornerRadius::ZERO, Palette::TRACK_HEADER_BG);
@@ -54,11 +54,12 @@ pub(super) fn paint_header(painter: &Painter, row: Rect, track: &TimelineTrackVi
         TrackKind::Audio => Icon::Volume,
     };
     for (offset, icon) in [(40.0_f32, primary_icon), (18.0, Icon::Lock)] {
-        icons::paint(
+        icons::paint_sized(
             painter,
-            Rect::from_center_size(pos2(row.right() - offset, row.center().y), vec2(14.0, 14.0)),
+            Rect::from_center_size(pos2(row.right() - offset, row.center().y), vec2(16.0, 16.0)),
             icon,
-            Palette::TEXT_DISABLED,
+            IconSize::Small,
+            IconColors::DISABLED,
         );
     }
 }

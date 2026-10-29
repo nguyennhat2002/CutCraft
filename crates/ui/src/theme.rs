@@ -80,6 +80,7 @@ impl Radii {
 
 /// Force the dark CutCraft theme and install compact desktop spacing.
 pub fn configure(context: &Context) {
+    egui_extras::install_image_loaders(context);
     context.set_theme(Theme::Dark);
     context.style_mut_of(Theme::Dark, configure_style);
     context.style_mut_of(Theme::Light, configure_style);

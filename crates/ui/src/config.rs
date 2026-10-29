@@ -55,6 +55,12 @@ pub const EXPORT_DIALOG_MAX_WIDTH: f32 = 760.0;
 pub const EXPORT_DIALOG_MIN_WIDTH: f32 = 640.0;
 pub const EXPORT_DIALOG_MAX_HEIGHT: f32 = 620.0;
 
+/// Keyboard shortcuts dialog target bounds.
+pub const SHORTCUTS_DIALOG_MIN_WIDTH: f32 = 640.0;
+pub const SHORTCUTS_DIALOG_MAX_WIDTH: f32 = 720.0;
+pub const SHORTCUTS_DIALOG_MIN_HEIGHT: f32 = 500.0;
+pub const SHORTCUTS_DIALOG_MAX_HEIGHT: f32 = 660.0;
+
 /// Preview placeholder frame-rate and playhead values.
 pub const PREVIEW_FPS_NUMERATOR: u32 = 30;
 pub const PREVIEW_FPS_DENOMINATOR: u32 = 1;
@@ -68,7 +74,7 @@ pub const TIMELINE_MAX_PIXELS_PER_SECOND: f32 = 80.0;
 pub const TIMELINE_LEADING_PADDING: f32 = 14.0;
 
 /// Timeline chrome/empty-canvas geometry in points, measured from the M1.5 reference.
-pub const TIMELINE_TOOLBAR_HEIGHT: f32 = 32.0;
+pub const TIMELINE_TOOLBAR_HEIGHT: f32 = 35.0;
 pub const TIMELINE_EMPTY_LEADING_PADDING: f32 = 78.0;
 pub const TIMELINE_INVITATION_HEIGHT: f32 = 68.0;
 /// Timeline row geometry in points.

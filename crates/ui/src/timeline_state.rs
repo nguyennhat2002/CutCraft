@@ -4,6 +4,7 @@
 //! project/time model. Normal sessions start with no rows or items. Widgets never
 //! insert or delete content; import and edit commands remain unimplemented.
 
+use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 /// Derived from supplied content, never from a separate "is empty" flag.
@@ -65,6 +66,65 @@ impl TimelineItemView {
 
     pub fn end_seconds(&self) -> f64 {
         self.end_seconds
+    }
+}
+
+/// Stable-within-the-current-view identity for a timeline item.
+///
+/// This is a presentation projection key for selection. A future engine adapter
+/// should replace it with the engine's persistent clip identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TimelineItemId {
+    pub track: usize,
+    pub item: usize,
+}
+
+/// Media makeup of the valid selected timeline items.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimelineSelectionKind {
+    VideoOnly,
+    AudioOnly,
+    Mixed,
+}
+
+/// Resolved selection counts after dropping stale ids that no longer exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TimelineSelectionContext {
+    pub selected: usize,
+    pub video: usize,
+    pub audio: usize,
+}
+
+impl TimelineSelectionContext {
+    pub fn classify(view: &TimelineView, selection: &BTreeSet<TimelineItemId>) -> Self {
+        let mut context = Self::default();
+        for id in selection {
+            let Some(track) = view.tracks.get(id.track) else {
+                continue;
+            };
+            if track.items.get(id.item).is_none() {
+                continue;
+            }
+            context.selected += 1;
+            match track.kind {
+                TrackKind::Video => context.video += 1,
+                TrackKind::Audio => context.audio += 1,
+            }
+        }
+        context
+    }
+
+    pub fn kind(self) -> Option<TimelineSelectionKind> {
+        match (self.video, self.audio) {
+            (0, 0) => None,
+            (_, 0) => Some(TimelineSelectionKind::VideoOnly),
+            (0, _) => Some(TimelineSelectionKind::AudioOnly),
+            _ => Some(TimelineSelectionKind::Mixed),
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.selected == 0
     }
 }
 
@@ -189,6 +249,43 @@ mod tests {
         assert_eq!(view.tracks.len(), 2);
         assert!(view.tracks[0].items.is_empty());
         assert_eq!(view.display_end_seconds(), 7.0);
+    }
+
+    #[test]
+    fn selection_context_resolves_video_audio_and_mixed_items() {
+        let mut view = TimelineView {
+            tracks: vec![
+                TimelineTrackView {
+                    label: "V1".to_owned(),
+                    name: "Video".to_owned(),
+                    kind: TrackKind::Video,
+                    items: vec![TimelineItemView::new("video", 0.0, 2.0).expect("valid")],
+                },
+                TimelineTrackView {
+                    label: "A1".to_owned(),
+                    name: "Audio".to_owned(),
+                    kind: TrackKind::Audio,
+                    items: vec![TimelineItemView::new("audio", 0.0, 2.0).expect("valid")],
+                },
+            ],
+        };
+        let none = TimelineSelectionContext::classify(&view, &BTreeSet::new());
+        assert_eq!(none.kind(), None);
+
+        let video_id = TimelineItemId { track: 0, item: 0 };
+        let audio_id = TimelineItemId { track: 1, item: 0 };
+        let video = TimelineSelectionContext::classify(&view, &BTreeSet::from([video_id]));
+        assert_eq!(video.kind(), Some(TimelineSelectionKind::VideoOnly));
+        let audio = TimelineSelectionContext::classify(&view, &BTreeSet::from([audio_id]));
+        assert_eq!(audio.kind(), Some(TimelineSelectionKind::AudioOnly));
+        let mixed =
+            TimelineSelectionContext::classify(&view, &BTreeSet::from([video_id, audio_id]));
+        assert_eq!(mixed.kind(), Some(TimelineSelectionKind::Mixed));
+
+        view.tracks[0].items.clear();
+        let stale = TimelineSelectionContext::classify(&view, &BTreeSet::from([video_id]));
+        assert!(stale.is_empty());
+        assert_eq!(stale.kind(), None);
     }
 
     #[test]

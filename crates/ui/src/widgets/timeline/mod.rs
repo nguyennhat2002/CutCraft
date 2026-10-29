@@ -4,21 +4,24 @@
 pub mod clip_view;
 pub mod playhead;
 pub mod scale;
+pub mod toolbar;
 pub mod track_view;
 
-use std::sync::LazyLock;
-
 use egui::{
-    pos2, vec2, Align, Align2, CornerRadius, FontId, Layout, Painter, Rect, ScrollArea, Sense,
-    Shape, Stroke, Ui,
+    pos2, vec2, Align2, CornerRadius, FontId, Painter, Pos2, Rect, ScrollArea, Sense, Shape,
+    Stroke, Ui,
 };
+
+use std::collections::BTreeSet;
 
 use crate::config;
 use crate::editor_state::EditorSession;
+use crate::shortcuts::ShortcutManager;
 use crate::theme::{Palette, Radii};
-use crate::timeline_state::{TimelineContentState, TimelineDisplayMode, TimelineView};
-use crate::widgets::common;
-use crate::widgets::icons::{self, Icon};
+use crate::timeline_state::{
+    TimelineContentState, TimelineDisplayMode, TimelineItemId, TimelineView,
+};
+use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
 use self::scale::{format_ruler_label, TimelineScale};
 
@@ -26,16 +29,19 @@ const INVITATION: &str = "Drag material here and start to create";
 const DROP_UNAVAILABLE: &str =
     "Placeholder only: media import and drag-and-drop are not implemented.";
 
-/// The visual demo and its toolbar control are opt-in for QA sessions only.
-static QA_CONTROLS_ENABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("CUTCRAFT_UI_DEMO").ok().as_deref() == Some("1"));
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimelineClick {
+    Select(TimelineItemId, bool),
+    Clear,
+}
 
-pub fn show(ui: &mut Ui, session: &mut EditorSession) {
+pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManager) {
+    session.prune_timeline_selection();
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         session.timeline_pixels_per_second =
             TimelineScale::new(session.timeline_pixels_per_second, 0.0).pixels_per_second();
-        toolbar(ui, session);
+        toolbar::show(ui, session, shortcuts);
 
         let view = session.displayed_timeline();
         let pristine = view.content_state() == TimelineContentState::PristineEmpty;
@@ -73,6 +79,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
                 .min(1_000_000.0)
                 .max(available.x);
         let demo = session.timeline_display_mode == TimelineDisplayMode::VisualDemo;
+        let mut click = None;
         let output = ScrollArea::new([true, rows_height > body_height])
             .id_salt("timeline_scroll")
             .scroll_offset(vec2(session.timeline_scroll[0], session.timeline_scroll[1]))
@@ -80,129 +87,107 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
             .max_height(available.y)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .show_viewport(ui, |ui, viewport| {
-                let (content, _) =
-                    ui.allocate_exact_size(vec2(content_width, content_height), Sense::hover());
+                let (content, response) =
+                    ui.allocate_exact_size(vec2(content_width, content_height), Sense::click());
                 let visible = viewport
                     .translate(content.min.to_vec2())
                     .intersect(ui.clip_rect());
-                paint_content(ui, content, visible, &scale, view, track_height, demo);
+                paint_content(
+                    ui,
+                    PaintedArea { content, visible },
+                    &scale,
+                    view,
+                    track_height,
+                    demo,
+                    session.timeline_selection(),
+                );
+                if response.clicked() {
+                    if let Some(position) = response.interact_pointer_pos() {
+                        let additive =
+                            ui.input(|input| input.modifiers.command || input.modifiers.shift);
+                        click = click_target(
+                            view,
+                            content,
+                            header_width,
+                            track_height,
+                            &scale,
+                            position,
+                            additive,
+                        );
+                    }
+                }
             });
         let offset = output.state.clamped_offset();
         session.timeline_scroll = [offset.x, offset.y];
+        match click {
+            Some(TimelineClick::Select(id, additive)) => {
+                session.select_timeline_item(id, additive);
+            }
+            Some(TimelineClick::Clear) => session.clear_timeline_selection(),
+            None => {}
+        }
     });
 }
 
-fn toolbar(ui: &mut Ui, session: &mut EditorSession) {
-    ui.allocate_ui_with_layout(
-        vec2(ui.available_width(), config::TIMELINE_TOOLBAR_HEIGHT),
-        Layout::left_to_right(Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = 5.0;
-            ui.add_space(4.0);
-            disabled_tool(ui, Icon::Plus, "Add / import", DROP_UNAVAILABLE);
-            ui.separator();
-            disabled_tool(
-                ui,
-                Icon::Select,
-                "Selection tool",
-                config::UNIMPLEMENTED_HINT,
-            );
-            ui.separator();
-            disabled_tool(ui, Icon::Undo, "Undo", config::UNIMPLEMENTED_HINT);
-            disabled_tool(ui, Icon::Redo, "Redo", config::UNIMPLEMENTED_HINT);
-            ui.separator();
-            disabled_tool(ui, Icon::Split, "Split", config::UNIMPLEMENTED_HINT);
-            disabled_tool(ui, Icon::Delete, "Delete", config::UNIMPLEMENTED_HINT);
-            if session.timeline_display_mode == TimelineDisplayMode::VisualDemo {
-                common::badge(ui, "Visual demo · not project data", Palette::WARNING);
+/// Resolve a click inside the scrollable content. Track headers and the ruler
+/// never select; an empty body area clears the timeline selection.
+fn click_target(
+    view: &TimelineView,
+    content: Rect,
+    header_width: f32,
+    track_height: f32,
+    scale: &TimelineScale,
+    position: Pos2,
+    additive: bool,
+) -> Option<TimelineClick> {
+    let body = Rect::from_min_max(
+        pos2(
+            content.left() + header_width,
+            content.top() + config::TIMELINE_RULER_HEIGHT,
+        ),
+        content.max,
+    );
+    if !body.contains(position) {
+        return None;
+    }
+    for (track_index, track) in view.tracks.iter().enumerate() {
+        let top = content.top() + config::TIMELINE_RULER_HEIGHT + track_height * track_index as f32;
+        let row = Rect::from_min_size(
+            pos2(body.left(), top),
+            vec2(content.width() - header_width, track_height),
+        );
+        for (item_index, item) in track.items.iter().enumerate() {
+            let clip_rect = clip_view::rect(row, scale, item);
+            if clip_rect.width() >= 2.0 && clip_rect.contains(position) {
+                return Some(TimelineClick::Select(
+                    TimelineItemId {
+                        track: track_index,
+                        item: item_index,
+                    },
+                    additive,
+                ));
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add_space(5.0);
-                if *QA_CONTROLS_ENABLED
-                    || session.timeline_display_mode == TimelineDisplayMode::VisualDemo
-                {
-                    ui.menu_button("QA", |ui| {
-                        let mut enabled =
-                            session.timeline_display_mode == TimelineDisplayMode::VisualDemo;
-                        if ui
-                            .checkbox(&mut enabled, "Visual demo (not project data)")
-                            .changed()
-                        {
-                            session.set_timeline_demo(enabled);
-                        }
-                        ui.label("Synthetic layout for visual QA only. No media is loaded.");
-                    });
-                }
-                if zoom_button(ui, "+", "Zoom timeline in").clicked() {
-                    session.zoom_timeline_in();
-                }
-                ui.scope(|ui| {
-                    ui.spacing_mut().slider_width = 92.0;
-                    let zoom = ui.add(
-                        egui::Slider::new(
-                            &mut session.timeline_pixels_per_second,
-                            config::TIMELINE_MIN_PIXELS_PER_SECOND
-                                ..=config::TIMELINE_MAX_PIXELS_PER_SECOND,
-                        )
-                        .logarithmic(true)
-                        .show_value(false),
-                    );
-                    let _ = zoom.on_hover_text("Timeline zoom");
-                });
-                if zoom_button(ui, "−", "Zoom timeline out").clicked() {
-                    session.zoom_timeline_out();
-                }
-                ui.separator();
-                disabled_tool(
-                    ui,
-                    Icon::Link,
-                    "Linked selection",
-                    config::UNIMPLEMENTED_HINT,
-                );
-                disabled_tool(ui, Icon::Snap, "Snapping", config::UNIMPLEMENTED_HINT);
-            });
-        },
-    );
+        }
+    }
+    Some(TimelineClick::Clear)
 }
 
-fn disabled_tool(ui: &mut Ui, icon: Icon, label: &str, hint: &str) {
-    let response = ui.add_enabled(
-        false,
-        egui::Button::new("")
-            .frame(false)
-            .corner_radius(Radii::CONTROL)
-            .min_size(vec2(26.0, 24.0)),
-    );
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::accesskit::Role::Button, false, label));
-    icons::paint(
-        ui.painter(),
-        response.rect.shrink(5.0),
-        icon,
-        Palette::TEXT_DISABLED,
-    );
-    response.on_disabled_hover_text(format!("{label} — {hint}"));
-}
-
-fn zoom_button(ui: &mut Ui, glyph: &str, label: &str) -> egui::Response {
-    let response = ui.add(
-        egui::Button::new(glyph)
-            .frame(false)
-            .corner_radius(Radii::CONTROL)
-            .min_size(vec2(24.0, 24.0)),
-    );
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::accesskit::Role::Button, true, label));
-    response.on_hover_text(label)
+#[derive(Debug, Clone, Copy)]
+struct PaintedArea {
+    content: Rect,
+    visible: Rect,
 }
 
 fn paint_content(
     ui: &Ui,
-    content: Rect,
-    visible: Rect,
+    area: PaintedArea,
     scale: &TimelineScale,
     view: &TimelineView,
     track_height: f32,
     demo: bool,
+    selection: &BTreeSet<TimelineItemId>,
 ) {
+    let PaintedArea { content, visible } = area;
     let painter = ui.painter_at(visible);
     painter.rect_filled(visible, CornerRadius::ZERO, Palette::TRACK_BG);
     let pristine = view.content_state() == TimelineContentState::PristineEmpty;
@@ -252,8 +237,19 @@ fn paint_content(
                 Rect::from_min_size(pos2(visible.left(), top), vec2(header_width, track_height)),
                 track,
             );
-            for item in &track.items {
-                clip_view::paint(&body_painter, row, scale, item, track.kind, demo);
+            for (item_index, item) in track.items.iter().enumerate() {
+                clip_view::paint(
+                    &body_painter,
+                    row,
+                    scale,
+                    item,
+                    track.kind,
+                    demo,
+                    selection.contains(&TimelineItemId {
+                        track: index,
+                        item: item_index,
+                    }),
+                );
             }
         }
         painter.line_segment(
@@ -361,11 +357,12 @@ fn paint_invitation(ui: &Ui, body: Rect, leading_padding: f32) {
         4.0,
         0.6,
     ));
-    icons::paint(
+    icons::paint_sized(
         &painter,
         Rect::from_center_size(pos2(rect.left() + 31.0, rect.center().y), vec2(18.0, 18.0)),
         Icon::Media,
-        Palette::TEXT_SECONDARY,
+        IconSize::Standard,
+        IconColors::MUTED,
     );
     painter.text(
         pos2(rect.left() + 55.0, rect.center().y),
@@ -421,7 +418,9 @@ mod tests {
             let context = egui::Context::default();
             crate::theme::configure(&context);
             let mut session = EditorSession::default();
-            let output = context.run_ui(input(width, height), |ui| show(ui, &mut session));
+            let output = context.run_ui(input(width, height), |ui| {
+                show(ui, &mut session, &ShortcutManager::default())
+            });
             let text = labels(&output);
             assert_eq!(
                 text.iter()
@@ -445,7 +444,9 @@ mod tests {
         let context = egui::Context::default();
         let mut session = EditorSession::default();
         session.timeline_view.tracks.push(track("V7"));
-        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        let output = context.run_ui(input(1000.0, 360.0), |ui| {
+            show(ui, &mut session, &ShortcutManager::default())
+        });
         assert!(labels(&output).iter().any(|text| text == "V7"));
         assert!(!labels(&output).iter().any(|text| text == INVITATION));
         output.drop_without_applying_deltas();
@@ -454,7 +455,9 @@ mod tests {
             TimelineItemView::new("Supplied item", 1.0, 8.0).expect("valid display geometry"),
         );
         let before = session.timeline_view.clone();
-        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        let output = context.run_ui(input(1000.0, 360.0), |ui| {
+            show(ui, &mut session, &ShortcutManager::default())
+        });
         let text = labels(&output);
         for expected in ["V7", "V8", "Supplied item"] {
             assert!(text.iter().any(|text| text == expected));
@@ -471,7 +474,9 @@ mod tests {
         session.timeline_view.tracks.push(track("V7"));
         let before = session.timeline_view.clone();
         session.set_timeline_demo(true);
-        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        let output = context.run_ui(input(1000.0, 360.0), |ui| {
+            show(ui, &mut session, &ShortcutManager::default())
+        });
         assert!(labels(&output).iter().any(|text| text == "Demo title"));
         assert_eq!(session.timeline_view, before);
         output.drop_without_applying_deltas();
@@ -500,7 +505,9 @@ mod tests {
             .push(std::sync::Arc::new(DroppedFile(std::path::PathBuf::from(
                 "not-imported.mp4",
             ))));
-        let output = context.run_ui(dropped, |ui| show(ui, &mut session));
+        let output = context.run_ui(dropped, |ui| {
+            show(ui, &mut session, &ShortcutManager::default())
+        });
         assert!(session.timeline_view.tracks.is_empty());
         assert_eq!(session.timeline_display_mode, TimelineDisplayMode::Project);
         output.drop_without_applying_deltas();
@@ -512,10 +519,14 @@ mod tests {
         let mut session = EditorSession::default();
         session.set_timeline_demo(true);
         session.timeline_scroll[0] = 900.0;
-        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        let output = context.run_ui(input(1000.0, 360.0), |ui| {
+            show(ui, &mut session, &ShortcutManager::default())
+        });
         output.drop_without_applying_deltas();
         let mut fresh = EditorSession::default();
-        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut fresh));
+        let output = context.run_ui(input(1000.0, 360.0), |ui| {
+            show(ui, &mut fresh, &ShortcutManager::default())
+        });
         assert_eq!(fresh.timeline_scroll, [0.0; 2]);
         assert!(labels(&output).iter().any(|text| text == "00:00"));
         output.drop_without_applying_deltas();
@@ -525,7 +536,9 @@ mod tests {
     fn zero_playhead_and_invitation_align_at_the_canvas_leading_padding() {
         let context = egui::Context::default();
         let mut session = EditorSession::default();
-        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        let output = context.run_ui(input(1000.0, 360.0), |ui| {
+            show(ui, &mut session, &ShortcutManager::default())
+        });
         let playhead = output.shapes.iter().find_map(|clipped| {
             if let Shape::LineSegment { points, stroke } = &clipped.shape {
                 (stroke.color == Palette::PLAYHEAD && points[0].x == points[1].x)
@@ -551,5 +564,193 @@ mod tests {
             assert_eq!(invitation.center().y, body.center().y);
             assert!(body.contains_rect(invitation));
         }
+    }
+
+    fn item_view() -> TimelineView {
+        TimelineView {
+            tracks: vec![TimelineTrackView {
+                label: "V1".to_owned(),
+                name: "Video".to_owned(),
+                kind: TrackKind::Video,
+                items: vec![TimelineItemView::new("Supplied clip", 1.0, 8.0).expect("valid")],
+            }],
+        }
+    }
+
+    #[test]
+    fn click_target_selects_clips_and_clears_only_empty_body_area() {
+        let view = item_view();
+        let content = Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 400.0));
+        let scale = TimelineScale::new(30.0, config::TIMELINE_LEADING_PADDING);
+        let clip_rect = clip_view::rect(
+            Rect::from_min_size(
+                pos2(config::TRACK_HEADER_WIDTH, config::TIMELINE_RULER_HEIGHT),
+                vec2(1000.0 - config::TRACK_HEADER_WIDTH, 58.0),
+            ),
+            &scale,
+            &view.tracks[0].items[0],
+        );
+        let id = TimelineItemId { track: 0, item: 0 };
+
+        assert_eq!(
+            click_target(
+                &view,
+                content,
+                config::TRACK_HEADER_WIDTH,
+                58.0,
+                &scale,
+                clip_rect.center(),
+                false,
+            ),
+            Some(TimelineClick::Select(id, false))
+        );
+        assert_eq!(
+            click_target(
+                &view,
+                content,
+                config::TRACK_HEADER_WIDTH,
+                58.0,
+                &scale,
+                clip_rect.center(),
+                true,
+            ),
+            Some(TimelineClick::Select(id, true))
+        );
+        assert_eq!(
+            click_target(
+                &view,
+                content,
+                config::TRACK_HEADER_WIDTH,
+                58.0,
+                &scale,
+                pos2(clip_rect.right() + 40.0, clip_rect.center().y),
+                false,
+            ),
+            Some(TimelineClick::Clear)
+        );
+        assert_eq!(
+            click_target(
+                &view,
+                content,
+                config::TRACK_HEADER_WIDTH,
+                58.0,
+                &scale,
+                pos2(40.0, clip_rect.center().y),
+                false,
+            ),
+            None,
+            "track headers must not select or clear"
+        );
+        assert_eq!(
+            click_target(
+                &view,
+                content,
+                config::TRACK_HEADER_WIDTH,
+                58.0,
+                &scale,
+                pos2(clip_rect.center().x, 10.0),
+                false,
+            ),
+            None,
+            "the ruler must not select or clear"
+        );
+    }
+
+    fn click_at(context: &egui::Context, position: egui::Pos2, session: &mut EditorSession) {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 360.0))),
+            events: vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let output = context.run_ui(input, |ui| show(ui, session, &ShortcutManager::default()));
+        output.drop_without_applying_deltas();
+    }
+
+    fn render_session(context: &egui::Context, session: &mut EditorSession) -> egui::FullOutput {
+        context.run_ui(input(1000.0, 360.0), |ui| {
+            show(ui, session, &ShortcutManager::default())
+        })
+    }
+
+    fn video_clip_rect(output: &egui::FullOutput) -> Rect {
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                Shape::Rect(rect)
+                    if rect.fill == Palette::ACCENT_BG
+                        && rect.rect.width() > 50.0
+                        && rect.rect.height() > 20.0 =>
+                {
+                    Some(rect.rect)
+                }
+                _ => None,
+            })
+            .expect("supplied video clip should paint a block")
+    }
+
+    #[test]
+    fn clicking_a_clip_selects_it_and_empty_canvas_clears_it_through_show() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession {
+            timeline_view: item_view(),
+            ..EditorSession::default()
+        };
+
+        let first = render_session(&context, &mut session);
+        let clip = video_clip_rect(&first);
+        first.drop_without_applying_deltas();
+        assert!(session.timeline_selection().is_empty());
+
+        click_at(&context, clip.center(), &mut session);
+        assert_eq!(
+            session.timeline_selection_context().kind(),
+            Some(crate::timeline_state::TimelineSelectionKind::VideoOnly)
+        );
+
+        let empty = pos2(clip.right() + 60.0, clip.center().y);
+        let frame = render_session(&context, &mut session);
+        frame.drop_without_applying_deltas();
+        click_at(&context, empty, &mut session);
+        assert!(session.timeline_selection().is_empty());
+        assert_eq!(session.timeline_selection_context().kind(), None);
+    }
+
+    #[test]
+    fn clicking_a_track_header_does_not_select_or_clear_a_clip() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession {
+            timeline_view: item_view(),
+            ..EditorSession::default()
+        };
+
+        let first = render_session(&context, &mut session);
+        let clip = video_clip_rect(&first);
+        first.drop_without_applying_deltas();
+        click_at(&context, clip.center(), &mut session);
+        assert_eq!(session.timeline_selection().len(), 1);
+
+        click_at(
+            &context,
+            pos2(clip.left() - 120.0, clip.center().y),
+            &mut session,
+        );
+        assert_eq!(session.timeline_selection().len(), 1);
     }
 }

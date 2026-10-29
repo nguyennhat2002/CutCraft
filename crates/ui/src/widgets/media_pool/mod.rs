@@ -13,7 +13,7 @@ use crate::theme::{Palette, Radii};
 use crate::widgets::common;
 use crate::widgets::common::focus_ring;
 use crate::widgets::controls;
-use crate::widgets::icons::{self, Icon};
+use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
 pub fn show(ui: &mut Ui, session: &mut EditorSession) {
     Frame::new()
@@ -116,8 +116,7 @@ fn media_body(ui: &mut Ui) {
     ui.add_space(6.0);
     disabled_search(ui, "Search media");
     ui.add_space(5.0);
-    let _ =
-        common::disabled_action_button(ui, "+  Import Media", "Media import is not implemented.");
+    let _ = common::disabled_action_button(ui, "Import Media", "Media import is not implemented.");
     ui.add_space(8.0);
     media_grid_empty(ui);
     ui.add_space(6.0);
@@ -136,8 +135,7 @@ fn audio_body(ui: &mut Ui) {
     ui.add_space(6.0);
     disabled_search(ui, "Search audio");
     ui.add_space(5.0);
-    let _ =
-        common::disabled_action_button(ui, "+  Import Audio", "Audio import is not implemented.");
+    let _ = common::disabled_action_button(ui, "Import Audio", "Audio import is not implemented.");
     ui.add_space(8.0);
     common::compact_empty_state(
         ui,
@@ -152,7 +150,7 @@ fn audio_body(ui: &mut Ui) {
 fn text_body(ui: &mut Ui) {
     subtab_row(ui, &["Basic", "Templates"]);
     ui.add_space(6.0);
-    let _ = common::disabled_action_button(ui, "+  Add Text", "Text editing is not implemented.");
+    let _ = common::disabled_action_button(ui, "Add Text", "Text editing is not implemented.");
     ui.add_space(8.0);
     Frame::new()
         .fill(Palette::CARD_BG)
@@ -354,7 +352,13 @@ fn locked_tile(ui: &mut Ui, width: f32, icon: Icon, label: &str) {
         .show(ui, |ui| {
             ui.set_min_size(vec2(width - 16.0, 64.0));
             let (icon_rect, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-            icons::paint(ui.painter(), icon_rect, icon, Palette::TEXT_DISABLED);
+            icons::paint_sized(
+                ui.painter(),
+                icon_rect,
+                icon,
+                IconSize::Standard,
+                IconColors::DISABLED,
+            );
             ui.label(RichText::new(label).size(9.5).color(Palette::TEXT_DISABLED));
             ui.label(
                 RichText::new("Unavailable")
@@ -387,16 +391,17 @@ fn category_tab(ui: &mut Ui, tool: EditorTool, selected: bool) -> Response {
 
     let icon_rect =
         Rect::from_center_size(pos2(rect.center().x, rect.top() + 12.0), vec2(14.0, 14.0));
-    icons::paint(
+    icons::paint_sized(
         &painter,
         icon_rect,
         tool_icon(tool),
+        IconSize::Small,
         if selected {
-            Palette::ACCENT
+            IconColors::SELECTED
         } else if hovered {
-            Palette::TEXT_PRIMARY
+            IconColors::HOVERED
         } else {
-            Palette::TEXT_MUTED
+            IconColors::MUTED
         },
     );
     painter.text(
@@ -426,7 +431,7 @@ fn tool_icon(tool: EditorTool) -> Icon {
         EditorTool::Transitions => Icon::Transitions,
         EditorTool::Captions => Icon::Captions,
         EditorTool::Filters => Icon::Filters,
-        EditorTool::Adjustment => Icon::Settings,
+        EditorTool::Adjustment => Icon::Adjust,
         EditorTool::Templates => Icon::Grid,
     }
 }
@@ -499,7 +504,13 @@ fn media_grid_empty(ui: &mut Ui) {
                     );
                     let icon_center = pos2(tile.center().x, tile.center().y - 4.0);
                     let icon_rect = Rect::from_center_size(icon_center, vec2(18.0, 18.0));
-                    icons::paint(&painter, icon_rect, Icon::Media, Palette::TEXT_DISABLED);
+                    icons::paint_sized(
+                        &painter,
+                        icon_rect,
+                        Icon::Media,
+                        IconSize::Small,
+                        IconColors::DISABLED,
+                    );
                 }
             }
 
@@ -569,6 +580,9 @@ fn waveform_placeholder(ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::timeline_state::{
+        TimelineItemId, TimelineItemView, TimelineSelectionKind, TimelineTrackView, TrackKind,
+    };
 
     #[test]
     fn every_library_category_renders_without_media() {
@@ -586,6 +600,71 @@ mod tests {
             let output = context.run_ui(input, |ui| show(ui, &mut session));
             assert!(!output.shapes.is_empty());
             output.drop_without_applying_deltas();
+        }
+    }
+
+    fn populated_session() -> EditorSession {
+        let mut session = EditorSession {
+            active_tool: EditorTool::Media,
+            ..EditorSession::default()
+        };
+        session.timeline_view.tracks = vec![TimelineTrackView {
+            label: "V1".to_owned(),
+            name: "Video".to_owned(),
+            kind: TrackKind::Video,
+            items: vec![TimelineItemView::new("Video clip", 1.0, 4.0).expect("valid")],
+        }];
+        session
+    }
+
+    fn click(context: &egui::Context, position: egui::Pos2, session: &mut EditorSession) {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(520.0, 620.0))),
+            events: vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let output = context.run_ui(input, |ui| show(ui, session));
+        output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn clicking_media_pool_content_never_selects_or_clears_timeline_items() {
+        let context = egui::Context::default();
+        let mut session = populated_session();
+        let positions = [
+            egui::pos2(60.0, 200.0),
+            egui::pos2(180.0, 260.0),
+            egui::pos2(80.0, 420.0),
+        ];
+        for position in positions {
+            click(&context, position, &mut session);
+            assert!(session.timeline_selection().is_empty());
+            assert_eq!(session.timeline_selection_context().kind(), None);
+        }
+        assert_eq!(session.active_tool, EditorTool::Media);
+
+        let video = TimelineItemId { track: 0, item: 0 };
+        assert!(session.select_timeline_item(video, false));
+        for position in positions {
+            click(&context, position, &mut session);
+            assert_eq!(
+                session.timeline_selection_context().kind(),
+                Some(TimelineSelectionKind::VideoOnly)
+            );
         }
     }
 }

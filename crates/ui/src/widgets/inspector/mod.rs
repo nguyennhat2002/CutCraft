@@ -15,11 +15,11 @@ use crate::theme::{Palette, Radii};
 use crate::widgets::common;
 use crate::widgets::common::focus_ring;
 use crate::widgets::controls;
-use crate::widgets::icons::{self, Icon};
+use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
 pub fn show(ui: &mut Ui, session: &mut EditorSession) {
     tab_strip(ui, session);
-    preview_note(ui);
+    preview_note(ui, session.timeline_selection_context().selected);
 
     let _ = ScrollArea::vertical()
         .id_salt("inspector_scroll")
@@ -116,7 +116,12 @@ fn tab_strip(ui: &mut Ui, session: &mut EditorSession) {
     );
 }
 
-fn preview_note(ui: &mut Ui) {
+fn preview_note(ui: &mut Ui, selected: usize) {
+    let note = match selected {
+        0 => "No clip selected · changes stay in this session".to_owned(),
+        1 => "1 timeline item selected · editing is not implemented".to_owned(),
+        count => format!("{count} timeline items selected · editing is not implemented"),
+    };
     Frame::new()
         .fill(Palette::PANEL_BG)
         .inner_margin(Margin::symmetric(10, 6))
@@ -125,11 +130,7 @@ fn preview_note(ui: &mut Ui) {
             ui.horizontal(|ui| {
                 common::badge(ui, "UI preview", Palette::ACCENT);
                 ui.add_space(6.0);
-                ui.label(
-                    RichText::new("No clip selected · changes stay in this session")
-                        .size(9.5)
-                        .color(Palette::TEXT_MUTED),
-                );
+                ui.label(RichText::new(note).size(9.5).color(Palette::TEXT_MUTED));
             });
         });
 }
@@ -228,19 +229,13 @@ fn caption_basic(ui: &mut Ui, session: &mut EditorSession) {
         );
     });
     row(ui, "Pattern", |ui| {
-        if style_toggle(ui, RichText::new("B").strong(), session.caption_bold).clicked() {
+        if style_toggle(ui, Icon::Bold, session.caption_bold).clicked() {
             session.caption_bold = !session.caption_bold;
         }
-        if style_toggle(
-            ui,
-            RichText::new("U").underline(),
-            session.caption_underline,
-        )
-        .clicked()
-        {
+        if style_toggle(ui, Icon::Underline, session.caption_underline).clicked() {
             session.caption_underline = !session.caption_underline;
         }
-        if style_toggle(ui, RichText::new("I").italics(), session.caption_italic).clicked() {
+        if style_toggle(ui, Icon::Italic, session.caption_italic).clicked() {
             session.caption_italic = !session.caption_italic;
         }
     });
@@ -406,8 +401,14 @@ fn caption_placeholder(ui: &mut Ui, icon: Icon, title: &str, body: &str) {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.vertical_centered(|ui| {
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
-                icons::paint(ui.painter(), icon_rect, icon, Palette::TEXT_DISABLED);
+                let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                icons::paint_sized(
+                    ui.painter(),
+                    icon_rect,
+                    icon,
+                    IconSize::EmptyState,
+                    IconColors::MUTED,
+                );
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new(title)
@@ -508,12 +509,52 @@ fn checkbox_row(ui: &mut Ui, label: &str, checked: &mut bool) -> egui::Response 
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-fn style_toggle(ui: &mut Ui, text: RichText, selected: bool) -> egui::Response {
-    let button = egui::Button::new(text.size(11.5))
-        .selected(selected)
-        .corner_radius(Radii::SMALL)
-        .min_size(vec2(28.0, 22.0));
-    ui.add(button).on_hover_cursor(CursorIcon::PointingHand)
+fn style_toggle(ui: &mut Ui, icon: Icon, selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(28.0, 22.0), Sense::click());
+    let hovered = response.hovered();
+    let pressed = response.is_pointer_button_down_on();
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect,
+        Radii::SMALL,
+        if selected {
+            Palette::ACCENT_BG
+        } else if pressed {
+            Palette::WIDGET_ACTIVE
+        } else if hovered {
+            Palette::WIDGET_HOVER
+        } else {
+            Palette::WIDGET_BG
+        },
+    );
+    painter.rect_stroke(
+        rect,
+        Radii::SMALL,
+        Stroke::new(
+            1.0,
+            if selected {
+                Palette::ACCENT
+            } else if hovered {
+                Palette::BORDER
+            } else {
+                Palette::BORDER_SUBTLE
+            },
+        ),
+        StrokeKind::Inside,
+    );
+    focus_ring(ui, &response, rect.shrink(1.0), Radii::SMALL);
+    icons::paint_sized(
+        painter,
+        rect,
+        icon,
+        IconSize::Small,
+        if selected {
+            IconColors::SELECTED
+        } else {
+            IconColors::MUTED
+        },
+    );
+    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn case_toggle(ui: &mut Ui, case: CaptionCase, selected: bool) -> egui::Response {
@@ -556,31 +597,23 @@ fn alignment_button(ui: &mut Ui, alignment: CaptionAlignment, selected: bool) ->
         StrokeKind::Inside,
     );
     focus_ring(ui, &response, rect.shrink(1.0), Radii::SMALL);
-    let color = if selected {
-        Palette::ACCENT_LIGHT
-    } else {
-        Palette::TEXT_SECONDARY
+    let icon = match alignment {
+        CaptionAlignment::Left => Icon::AlignLeft,
+        CaptionAlignment::Center => Icon::AlignCenter,
+        CaptionAlignment::Right => Icon::AlignRight,
+        CaptionAlignment::Justify => Icon::AlignJustify,
     };
-    let stroke = Stroke::new(1.0, color);
-    let left = rect.left() + 7.0;
-    let right = rect.right() - 7.0;
-    let widths = [13.0, 8.0, 11.0];
-    for (index, width) in widths.iter().enumerate() {
-        let y = rect.center().y - 4.0 + index as f32 * 4.0;
-        let (x0, x1) = match alignment {
-            CaptionAlignment::Left => (left, left + width),
-            CaptionAlignment::Center => {
-                let center = rect.center().x;
-                (center - width / 2.0, center + width / 2.0)
-            }
-            CaptionAlignment::Right => (right - width, right),
-            CaptionAlignment::Justify => {
-                let segment = if index == 2 { *width } else { right - left };
-                (left, left + segment)
-            }
-        };
-        painter.line_segment([pos2(x0, y), pos2(x1, y)], stroke);
-    }
+    icons::paint_sized(
+        painter,
+        rect,
+        icon,
+        IconSize::Small,
+        if selected {
+            IconColors::SELECTED
+        } else {
+            IconColors::MUTED
+        },
+    );
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
@@ -784,5 +817,43 @@ mod tests {
             .fold(Rect::NOTHING, |acc, rect| acc.union(rect));
         assert!(min.max.x <= 260.0 + 0.5, "style tiles overflow: {min:?}");
         output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn selection_note_reflects_real_timeline_selection() {
+        use crate::timeline_state::{
+            TimelineItemId, TimelineItemView, TimelineTrackView, TrackKind,
+        };
+
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::default();
+        session.timeline_view.tracks = vec![TimelineTrackView {
+            label: "V1".to_owned(),
+            name: "Video".to_owned(),
+            kind: TrackKind::Video,
+            items: vec![TimelineItemView::new("Video clip", 1.0, 4.0).expect("valid")],
+        }];
+        assert!(session.select_timeline_item(TimelineItemId { track: 0, item: 0 }, false));
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 560.0))),
+            ..Default::default()
+        };
+        let output = context.run_ui(input, |ui| show(ui, &mut session));
+        let labels = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        output.drop_without_applying_deltas();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label == "1 timeline item selected · editing is not implemented"),
+            "selection note was not updated: {labels:?}"
+        );
     }
 }

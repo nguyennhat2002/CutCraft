@@ -7,6 +7,10 @@ license.workspace = true
 [dependencies]
 egui.workspace = true
 eframe.workspace = true
+egui_extras.workspace = true
+egui-lucide.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 capcut-core.workspace = true
 capcut-engine.workspace = true
 capcut-renderer.workspace = true

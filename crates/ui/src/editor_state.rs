@@ -4,9 +4,14 @@
 //! needed to keep the editor coherent while navigating; it is not an engine
 //! project and is never written to disk.
 
+use std::collections::BTreeSet;
+
 use crate::config;
 use crate::export_settings::ExportSettings;
-use crate::timeline_state::{self, TimelineDisplayMode, TimelineView};
+use crate::shortcuts::CommandId;
+use crate::timeline_state::{
+    self, TimelineDisplayMode, TimelineItemId, TimelineSelectionContext, TimelineView,
+};
 
 /// Left-panel library categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +208,11 @@ pub struct EditorSession {
     pub timeline_display_mode: TimelineDisplayMode,
     /// Session-owned scroll offsets prevent egui memory leaking into new projects.
     pub timeline_scroll: [f32; 2],
+    /// Presentation selection over the displayed timeline; never media-pool state.
+    pub(crate) timeline_selection: BTreeSet<TimelineItemId>,
+    /// Nonfunctional toolbar preferences; editing behavior is not implemented.
+    pub timeline_snapping: bool,
+    pub timeline_linked_selection: bool,
     pub left_panel_fraction: f32,
     pub right_panel_fraction: f32,
 }
@@ -235,6 +245,9 @@ impl Default for EditorSession {
             timeline_view: TimelineView::default(),
             timeline_display_mode: TimelineDisplayMode::Project,
             timeline_scroll: [0.0; 2],
+            timeline_selection: BTreeSet::new(),
+            timeline_snapping: true,
+            timeline_linked_selection: true,
             left_panel_fraction: config::WORKSPACE_LEFT_FRACTION,
             right_panel_fraction: config::WORKSPACE_RIGHT_FRACTION,
         }
@@ -258,6 +271,78 @@ impl EditorSession {
             TimelineDisplayMode::Project
         };
         self.timeline_scroll = [0.0; 2];
+        self.timeline_selection.clear();
+    }
+
+    pub fn timeline_selection(&self) -> &BTreeSet<TimelineItemId> {
+        &self.timeline_selection
+    }
+
+    pub fn is_timeline_item_selected(&self, id: TimelineItemId) -> bool {
+        self.timeline_selection.contains(&id)
+    }
+
+    /// Counts only ids that still resolve in the displayed view, so a supplied
+    /// snapshot refresh that removes items cannot keep contextual tools visible.
+    pub fn timeline_selection_context(&self) -> TimelineSelectionContext {
+        TimelineSelectionContext::classify(self.displayed_timeline(), &self.timeline_selection)
+    }
+
+    pub fn clear_timeline_selection(&mut self) {
+        self.timeline_selection.clear();
+    }
+
+    /// Select an existing displayed item. `additive` toggles one item; otherwise
+    /// the click replaces the current selection. Unknown ids are ignored.
+    pub fn select_timeline_item(&mut self, id: TimelineItemId, additive: bool) -> bool {
+        let exists = self
+            .displayed_timeline()
+            .tracks
+            .get(id.track)
+            .and_then(|track| track.items.get(id.item))
+            .is_some();
+        if !exists {
+            return false;
+        }
+        if additive {
+            if !self.timeline_selection.remove(&id) {
+                self.timeline_selection.insert(id);
+            }
+        } else {
+            self.timeline_selection.clear();
+            self.timeline_selection.insert(id);
+        }
+        true
+    }
+
+    /// Drop ids that no longer exist after supplied content changes.
+    pub fn prune_timeline_selection(&mut self) {
+        let stale: Vec<TimelineItemId> = {
+            let view = self.displayed_timeline();
+            self.timeline_selection
+                .iter()
+                .copied()
+                .filter(|id| {
+                    view.tracks
+                        .get(id.track)
+                        .and_then(|track| track.items.get(id.item))
+                        .is_none()
+                })
+                .collect()
+        };
+        for id in stale {
+            self.timeline_selection.remove(&id);
+        }
+    }
+
+    /// UI preference only; no snapping behavior is applied yet.
+    pub fn toggle_timeline_snapping(&mut self) {
+        self.timeline_snapping = !self.timeline_snapping;
+    }
+
+    /// UI preference only; no linked-selection behavior is applied yet.
+    pub fn toggle_timeline_linked_selection(&mut self) {
+        self.timeline_linked_selection = !self.timeline_linked_selection;
     }
 
     pub fn reset_layout(&mut self) {
@@ -281,11 +366,51 @@ impl EditorSession {
             config::TIMELINE_MAX_PIXELS_PER_SECOND,
         );
     }
+
+    /// Shared execution path for editor-scoped commands invoked by the toolbar
+    /// or keyboard. Returns `false` for commands owned by the application shell
+    /// or not yet implemented.
+    pub fn execute_shortcut_command(&mut self, command: CommandId) -> bool {
+        match command {
+            CommandId::SnappingToggle => self.toggle_timeline_snapping(),
+            CommandId::LinkedSelection => self.toggle_timeline_linked_selection(),
+            CommandId::ZoomIn => self.zoom_timeline_in(),
+            CommandId::ZoomOut => self.zoom_timeline_out(),
+            CommandId::DeselectAll => self.clear_timeline_selection(),
+            _ => return false,
+        }
+        true
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::timeline_state::{
+        TimelineItemView, TimelineSelectionKind, TimelineTrackView, TrackKind,
+    };
+
+    fn populated_session() -> EditorSession {
+        let mut session = EditorSession::default();
+        session.timeline_view.tracks = vec![
+            TimelineTrackView {
+                label: "V1".to_owned(),
+                name: "Video".to_owned(),
+                kind: TrackKind::Video,
+                items: vec![TimelineItemView::new("Video clip", 1.0, 4.0).expect("valid")],
+            },
+            TimelineTrackView {
+                label: "A1".to_owned(),
+                name: "Audio".to_owned(),
+                kind: TrackKind::Audio,
+                items: vec![TimelineItemView::new("Audio clip", 1.0, 4.0).expect("valid")],
+            },
+        ];
+        session
+    }
+
+    const VIDEO: TimelineItemId = TimelineItemId { track: 0, item: 0 };
+    const AUDIO: TimelineItemId = TimelineItemId { track: 1, item: 0 };
 
     #[test]
     fn new_session_is_unsaved_and_starts_on_captions_preview() {
@@ -349,6 +474,23 @@ mod tests {
     }
 
     #[test]
+    fn timeline_toolbar_preferences_toggle_without_editing_behavior() {
+        let mut session = EditorSession::default();
+        assert!(session.timeline_snapping);
+        assert!(session.timeline_linked_selection);
+
+        session.toggle_timeline_snapping();
+        session.toggle_timeline_linked_selection();
+        assert!(!session.timeline_snapping);
+        assert!(!session.timeline_linked_selection);
+
+        session.toggle_timeline_snapping();
+        session.toggle_timeline_linked_selection();
+        assert!(session.timeline_snapping);
+        assert!(session.timeline_linked_selection);
+    }
+
+    #[test]
     fn timeline_zoom_is_clamped_to_supported_range() {
         let mut at_max = EditorSession {
             timeline_pixels_per_second: config::TIMELINE_MAX_PIXELS_PER_SECOND,
@@ -369,5 +511,123 @@ mod tests {
             at_min.timeline_pixels_per_second,
             config::TIMELINE_MIN_PIXELS_PER_SECOND
         );
+    }
+
+    #[test]
+    fn empty_and_unselected_populated_timelines_have_no_clip_context() {
+        let empty = EditorSession::default();
+        assert!(empty.timeline_selection().is_empty());
+        assert!(empty.timeline_selection_context().is_empty());
+        assert_eq!(empty.timeline_selection_context().kind(), None);
+
+        let populated = populated_session();
+        assert!(populated.timeline_selection().is_empty());
+        assert_eq!(populated.timeline_selection_context().kind(), None);
+    }
+
+    #[test]
+    fn video_audio_and_mixed_selections_are_classified_from_real_items() {
+        let mut session = populated_session();
+
+        assert!(session.select_timeline_item(VIDEO, false));
+        assert_eq!(
+            session.timeline_selection_context().kind(),
+            Some(TimelineSelectionKind::VideoOnly)
+        );
+
+        assert!(session.select_timeline_item(AUDIO, false));
+        assert_eq!(
+            session.timeline_selection_context().kind(),
+            Some(TimelineSelectionKind::AudioOnly)
+        );
+        assert_eq!(session.timeline_selection().len(), 1);
+
+        assert!(session.select_timeline_item(VIDEO, true));
+        let mixed = session.timeline_selection_context();
+        assert_eq!(mixed.kind(), Some(TimelineSelectionKind::Mixed));
+        assert_eq!(mixed.selected, 2);
+        assert_eq!((mixed.video, mixed.audio), (1, 1));
+
+        assert!(session.select_timeline_item(VIDEO, true));
+        assert_eq!(
+            session.timeline_selection_context().kind(),
+            Some(TimelineSelectionKind::AudioOnly)
+        );
+    }
+
+    #[test]
+    fn selecting_unknown_or_removed_items_never_creates_a_selection() {
+        let mut session = populated_session();
+        let unknown = TimelineItemId { track: 9, item: 0 };
+        assert!(!session.select_timeline_item(unknown, false));
+        assert!(session.timeline_selection().is_empty());
+
+        assert!(session.select_timeline_item(VIDEO, false));
+        session.timeline_view.tracks[0].items.clear();
+        assert_eq!(session.timeline_selection_context().kind(), None);
+        assert_eq!(session.timeline_selection().len(), 1);
+
+        session.prune_timeline_selection();
+        assert!(session.timeline_selection().is_empty());
+    }
+
+    #[test]
+    fn removing_the_last_selected_item_hides_contextual_tools() {
+        let mut session = populated_session();
+        assert!(session.select_timeline_item(AUDIO, false));
+        assert!(session.timeline_selection_context().kind().is_some());
+
+        session.timeline_view.tracks.clear();
+        session.prune_timeline_selection();
+
+        assert!(session.timeline_selection().is_empty());
+        assert_eq!(session.timeline_selection_context().kind(), None);
+    }
+
+    #[test]
+    fn clearing_or_switching_the_view_removes_selection() {
+        let mut session = populated_session();
+        assert!(session.select_timeline_item(VIDEO, false));
+        session.clear_timeline_selection();
+        assert_eq!(session.timeline_selection_context().kind(), None);
+
+        assert!(session.select_timeline_item(VIDEO, false));
+        session.set_timeline_demo(true);
+        assert!(session.timeline_selection().is_empty());
+        assert_eq!(session.timeline_selection_context().kind(), None);
+    }
+
+    #[test]
+    fn selection_changes_never_modify_zoom_or_toolbar_preferences() {
+        let mut session = populated_session();
+        let zoom = session.timeline_pixels_per_second;
+        let snapping = session.timeline_snapping;
+        let linked = session.timeline_linked_selection;
+
+        assert!(session.select_timeline_item(VIDEO, false));
+        assert!(session.select_timeline_item(AUDIO, true));
+        session.clear_timeline_selection();
+
+        assert_eq!(session.timeline_pixels_per_second, zoom);
+        assert_eq!(session.timeline_snapping, snapping);
+        assert_eq!(session.timeline_linked_selection, linked);
+        assert_eq!(session.displayed_timeline(), &session.timeline_view);
+    }
+
+    #[test]
+    fn toolbar_and_keyboard_share_the_same_editor_command_path() {
+        let mut session = populated_session();
+        assert!(session.select_timeline_item(VIDEO, false));
+        let zoom = session.timeline_pixels_per_second;
+
+        assert!(session.execute_shortcut_command(CommandId::SnappingToggle));
+        assert!(!session.timeline_snapping);
+        assert!(session.execute_shortcut_command(CommandId::LinkedSelection));
+        assert!(!session.timeline_linked_selection);
+        assert!(session.execute_shortcut_command(CommandId::ZoomIn));
+        assert!(session.timeline_pixels_per_second > zoom);
+        assert!(session.execute_shortcut_command(CommandId::DeselectAll));
+        assert!(session.timeline_selection().is_empty());
+        assert!(!session.execute_shortcut_command(CommandId::SplitAtPlayhead));
     }
 }

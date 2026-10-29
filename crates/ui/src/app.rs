@@ -1,5 +1,6 @@
 //! eframe application entry and native window configuration.
 
+use crate::shortcuts::{ShortcutManager, ShortcutStore};
 use crate::{app_state::AppState, config, theme, widgets};
 
 /// The CutCraft desktop application.
@@ -9,10 +10,23 @@ pub struct CutCraftApp {
 }
 
 impl CutCraftApp {
-    /// Create the application and install the dark editor theme once.
+    /// Create the application, install the dark editor theme once, and load the
+    /// user's shortcut profile. Corrupt configuration degrades to defaults.
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         theme::configure(&creation_context.egui_ctx);
-        Self::default()
+        let mut app = Self::default();
+        let store = ShortcutStore::user_default();
+        let persistence_unavailable = store.is_none();
+        let (shortcuts, warning) = ShortcutManager::load(store);
+        app.state.install_shortcuts(shortcuts);
+        if let Some(warning) = warning {
+            app.state.report_warning(warning);
+        } else if persistence_unavailable {
+            app.state.report_warning(
+                "Shortcut settings can be changed for this session but cannot be saved on this system.",
+            );
+        }
+        app
     }
 
     /// Draw one frame of the active screen.
@@ -20,6 +34,14 @@ impl CutCraftApp {
     /// Kept separate from the `eframe::App` impl so headless tests can drive it
     /// without creating a native window.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        let context = ui.ctx().clone();
+        let shortcuts_were_open = self.state.shortcuts_open();
+        self.state.handle_shortcuts(&context);
+        if !shortcuts_were_open && self.state.shortcuts_open() {
+            // egui lays out a newly created modal area on the first pass; request
+            // one follow-up frame so it becomes visible without another input.
+            context.request_repaint();
+        }
         widgets::layout::show_shell(ui, &mut self.state);
     }
 }
@@ -153,7 +175,6 @@ mod tests {
         let context = Context::default();
         theme::configure(&context);
         let mut app = CutCraftApp::default();
-
         for step in 0..8 {
             let output = context.run_ui(frame_input(1600.0, 900.0, step as f64 / 60.0), |ui| {
                 app.draw(ui)
@@ -192,6 +213,69 @@ mod tests {
             last_repaint_delay(&context, &mut app, 3.0, 1600.0, 900.0),
             Duration::MAX,
             "idle export dialog must not run a continuous repaint loop"
+        );
+    }
+
+    #[test]
+    fn shortcuts_dialog_is_rendered_with_registry_rows_and_footer() {
+        let context = Context::default();
+        theme::configure(&context);
+        let mut app = CutCraftApp::default();
+        app.state.create_temporary_project();
+        app.state.open_shortcuts();
+
+        let mut labels = Vec::new();
+        for step in 0..3 {
+            let output = context.run_ui(frame_input(1600.0, 900.0, step as f64 / 60.0), |ui| {
+                app.draw(ui)
+            });
+            labels = output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                    _ => None,
+                })
+                .collect();
+            output.drop_without_applying_deltas();
+        }
+
+        for expected in [
+            "Shortcuts",
+            "Timeline",
+            "Player",
+            "Basic",
+            "Other",
+            "CutCraft Default",
+            "Selection Tool",
+            "Reset",
+            "Save",
+            "Cancel",
+        ] {
+            assert!(
+                labels.iter().any(|label| label == expected),
+                "missing shortcut-dialog text '{expected}'"
+            );
+        }
+    }
+
+    #[test]
+    fn idle_shortcuts_dialog_does_not_request_continuous_repaints() {
+        let context = Context::default();
+        theme::configure(&context);
+        let mut app = CutCraftApp::default();
+        app.state.create_temporary_project();
+        app.state.open_shortcuts();
+        for step in 0..12 {
+            let output = context.run_ui(frame_input(1600.0, 900.0, step as f64 / 60.0), |ui| {
+                app.draw(ui)
+            });
+            output.drop_without_applying_deltas();
+        }
+        assert_eq!(
+            last_repaint_delay(&context, &mut app, 0.3, 1600.0, 900.0),
+            Duration::MAX,
+            "an idle shortcuts dialog must not repaint continuously"
         );
     }
 }

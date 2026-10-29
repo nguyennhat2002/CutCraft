@@ -20,11 +20,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
     }
 
     let action = {
-        let Some(session) = state.session_mut() else {
+        let Some((session, shortcuts)) = state.session_and_shortcuts_mut() else {
             return;
         };
 
-        let action = toolbar::show(ui, session);
+        let action = toolbar::show(ui, session, shortcuts);
 
         paint_editor_background(ui);
         let available = ui.available_size();
@@ -59,7 +59,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                     vec2(content.width(), timeline_height),
                 );
                 panel::show(ui, timeline_rect, Palette::PANEL_BG, |ui| {
-                    timeline::show(ui, session);
+                    timeline::show(ui, session, shortcuts);
                 });
             }
         }
@@ -75,8 +75,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
         action
     };
 
-    if action == TopBarAction::Home {
-        state.go_home();
+    match action {
+        TopBarAction::Home => state.go_home(),
+        TopBarAction::Shortcuts => {
+            state.open_shortcuts();
+            context.request_repaint();
+        }
+        TopBarAction::None | TopBarAction::Export => {}
     }
 }
 
