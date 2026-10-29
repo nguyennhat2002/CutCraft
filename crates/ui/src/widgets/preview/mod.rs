@@ -1,8 +1,4 @@
-//! Preview Monitor panel.
-//!
-//! The canvas is intentionally empty: no decoder, GPU texture upload, or
-//! playback exists yet. Aspect selection is display-only and transport controls
-//! are painted disabled.
+//! Preview monitor with aspect-aware stage and disabled transport controls.
 
 use egui::{
     pos2, vec2, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Layout, Painter, Rect,
@@ -18,51 +14,42 @@ use crate::widgets::common;
 pub fn show(ui: &mut Ui, session: &mut EditorSession) {
     ui.horizontal(|ui| {
         common::section_heading(ui, "Preview");
-        ui.add_space(6.0);
-        common::badge(ui, "Placeholder", Palette::WARNING);
         ui.add_space(4.0);
-
-        for aspect in PreviewAspect::ALL {
-            let selected = session.preview_aspect == aspect;
-            let response = ui.add(
-                egui::Button::new(RichText::new(aspect.label()).size(10.0).strong().color(
-                    if selected {
-                        Palette::ACCENT
-                    } else {
-                        Palette::TEXT_MUTED
-                    },
-                ))
-                .selected(selected)
-                .min_size(vec2(40.0, 22.0)),
-            );
-            if response.clicked() {
-                session.preview_aspect = aspect;
-            }
-            let _ = response.on_hover_text("Preview aspect ratio (display only).");
-        }
-
+        common::badge(ui, "Placeholder", Palette::WARNING);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(
                 RichText::new(resolution_label(session.preview_aspect))
-                    .size(10.5)
+                    .size(9.5)
                     .color(Palette::TEXT_MUTED),
             );
         });
     });
 
-    ui.add_space(8.0);
+    ui.add_space(5.0);
 
-    let footer_height = 38.0;
+    let footer_height = 58.0;
     let available = ui.available_size();
-    let canvas_area_height = (available.y - footer_height).max(1.0);
-    let (canvas_area, _) =
-        ui.allocate_exact_size(vec2(available.x, canvas_area_height), Sense::hover());
+    let monitor_height = (available.y - footer_height).max(80.0);
+    let (monitor_area, _) =
+        ui.allocate_exact_size(vec2(available.x, monitor_height), Sense::hover());
 
-    let padded = canvas_area.shrink2(vec2(6.0, 4.0));
+    let painter = ui.painter_at(monitor_area);
+    painter.rect_filled(
+        monitor_area,
+        CornerRadius::same(4),
+        Color32::from_rgb(0x0b, 0x0b, 0x0c),
+    );
+    painter.rect_stroke(
+        monitor_area,
+        CornerRadius::same(4),
+        Stroke::new(1.0, Palette::BORDER_SUBTLE),
+        StrokeKind::Inside,
+    );
+
+    let padded = monitor_area.shrink2(vec2(12.0, 10.0));
     let canvas = fit_preview_rect(padded, session.preview_aspect.ratio());
-    let painter = ui.painter_at(canvas_area);
 
-    if canvas.width() > 0.5 && canvas.height() > 0.5 {
+    if canvas.width() > 1.0 && canvas.height() > 1.0 {
         painter.rect_filled(canvas, CornerRadius::same(2), Palette::CANVAS);
         painter.rect_stroke(
             canvas,
@@ -71,53 +58,97 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
             StrokeKind::Inside,
         );
 
-        if canvas.height() > 54.0 {
-            painter.text(
-                canvas.center() + vec2(0.0, -8.0),
-                Align2::CENTER_CENTER,
-                "No media loaded",
-                FontId::proportional(15.0),
-                Palette::TEXT_MUTED,
-            );
-        }
-        if canvas.height() > 84.0 {
-            painter.text(
-                canvas.center() + vec2(0.0, 12.0),
-                Align2::CENTER_CENTER,
-                "Preview rendering is not implemented",
-                FontId::proportional(10.5),
-                Palette::TEXT_DISABLED,
-            );
-        }
-
+        let (width, height) = session.preview_aspect.dimensions();
         painter.text(
             canvas.left_top() + vec2(10.0, 9.0),
             Align2::LEFT_TOP,
-            session.preview_aspect.label(),
-            FontId::monospace(9.0),
+            format!("{width} \u{00d7} {height}"),
+            FontId::monospace(8.5),
             Palette::TEXT_DISABLED,
         );
+
+        if canvas.height() > 72.0 {
+            let center = canvas.center();
+            let icon_center = center - vec2(0.0, 24.0);
+            painter.circle_stroke(icon_center, 17.0, Stroke::new(1.2, Palette::TEXT_DISABLED));
+            painter.add(Shape::convex_polygon(
+                vec![
+                    pos2(icon_center.x - 4.0, icon_center.y - 7.0),
+                    pos2(icon_center.x - 4.0, icon_center.y + 7.0),
+                    pos2(icon_center.x + 7.0, icon_center.y),
+                ],
+                Palette::TEXT_DISABLED,
+                Stroke::NONE,
+            ));
+            painter.text(
+                center + vec2(0.0, 12.0),
+                Align2::CENTER_CENTER,
+                "No media loaded",
+                FontId::proportional(13.0),
+                Palette::TEXT_MUTED,
+            );
+            painter.text(
+                center + vec2(0.0, 29.0),
+                Align2::CENTER_CENTER,
+                "Preview rendering is not implemented",
+                FontId::proportional(9.0),
+                Palette::TEXT_DISABLED,
+            );
+        }
     }
 
     ui.add_space(4.0);
 
     ui.horizontal(|ui| {
-        ui.add_space(4.0);
-        let _ = transport_button(ui, TransportGlyph::ToStart);
-        let _ = transport_button(ui, TransportGlyph::Play);
-        let _ = transport_button(ui, TransportGlyph::Pause);
-        let _ = transport_button(ui, TransportGlyph::ToEnd);
+        ui.label(
+            RichText::new(format!("{} / 00:00:00:00", placeholder_timecode()))
+                .monospace()
+                .size(10.5)
+                .color(Palette::TEXT_SECONDARY),
+        )
+        .on_hover_text("Static placeholder timecode; no project is loaded.");
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(
-                RichText::new(format!("{} / 00:00:00:00", placeholder_timecode()))
-                    .monospace()
-                    .size(11.0)
-                    .color(Palette::TEXT_DISABLED),
-            )
-            .on_hover_text("No project duration is available.");
+            let _ = transport_button(ui, TransportGlyph::ToEnd);
+            let _ = transport_button(ui, TransportGlyph::Pause);
+            let _ = transport_button(ui, TransportGlyph::Play);
+            let _ = transport_button(ui, TransportGlyph::ToStart);
         });
     });
+
+    ui.add_space(2.0);
+
+    ui.horizontal(|ui| {
+        aspect_button(ui, session, PreviewAspect::Landscape);
+        aspect_button(ui, session, PreviewAspect::Portrait);
+        ui.add_space(4.0);
+        let fit = ui.add_enabled(false, egui::Button::new(RichText::new("Fit").size(9.5)));
+        let _ = fit.on_disabled_hover_text("Viewport fitting is not implemented.");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let zoom = ui.add_enabled(
+                false,
+                egui::Button::new(RichText::new("100%").size(9.5).monospace()),
+            );
+            let _ = zoom.on_disabled_hover_text("Preview zoom is not implemented.");
+        });
+    });
+}
+
+fn aspect_button(ui: &mut Ui, session: &mut EditorSession, aspect: PreviewAspect) {
+    let selected = session.preview_aspect == aspect;
+    let response = ui.add(
+        egui::Button::new(RichText::new(aspect.label()).size(9.5).color(if selected {
+            Palette::ACCENT
+        } else {
+            Palette::TEXT_MUTED
+        }))
+        .selected(selected)
+        .min_size(vec2(38.0, 22.0)),
+    );
+    if response.clicked() {
+        session.preview_aspect = aspect;
+    }
+    let _ = response.on_hover_text("Preview aspect ratio (display only).");
 }
 
 fn placeholder_timecode() -> String {
@@ -195,12 +226,12 @@ impl TransportGlyph {
 }
 
 fn transport_button(ui: &mut Ui, glyph: TransportGlyph) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(30.0, 24.0), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(vec2(26.0, 22.0), Sense::hover());
     let hovered = response.hovered();
     let fill = if hovered {
         Palette::WIDGET_HOVER
     } else {
-        Palette::PANEL_RAISED
+        Palette::WIDGET_BG
     };
     let color = if hovered {
         Palette::TEXT_SECONDARY
@@ -209,10 +240,10 @@ fn transport_button(ui: &mut Ui, glyph: TransportGlyph) -> Response {
     };
 
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::same(4), fill);
+    painter.rect_filled(rect, CornerRadius::same(3), fill);
     painter.rect_stroke(
         rect,
-        CornerRadius::same(4),
+        CornerRadius::same(3),
         Stroke::new(1.0, Palette::BORDER_SUBTLE),
         StrokeKind::Inside,
     );
@@ -231,23 +262,23 @@ fn paint_transport_glyph(
 ) {
     let triangle_right = |cx: f32, cy: f32| {
         vec![
-            pos2(cx - 4.0, cy - 5.0),
-            pos2(cx - 4.0, cy + 5.0),
-            pos2(cx + 5.0, cy),
+            pos2(cx - 3.5, cy - 4.5),
+            pos2(cx - 3.5, cy + 4.5),
+            pos2(cx + 4.5, cy),
         ]
     };
     let triangle_left = |cx: f32, cy: f32| {
         vec![
-            pos2(cx + 4.0, cy - 5.0),
-            pos2(cx + 4.0, cy + 5.0),
-            pos2(cx - 5.0, cy),
+            pos2(cx + 3.5, cy - 4.5),
+            pos2(cx + 3.5, cy + 4.5),
+            pos2(cx - 4.5, cy),
         ]
     };
 
     match glyph {
         TransportGlyph::ToStart => {
             painter.rect_filled(
-                Rect::from_center_size(pos2(center.x - 6.5, center.y), vec2(2.0, 10.0)),
+                Rect::from_center_size(pos2(center.x - 6.0, center.y), vec2(1.8, 9.0)),
                 CornerRadius::ZERO,
                 color,
             );
@@ -265,9 +296,9 @@ fn paint_transport_glyph(
             ));
         }
         TransportGlyph::Pause => {
-            for offset in [-3.0_f32, 3.0] {
+            for offset in [-2.8_f32, 2.8] {
                 painter.rect_filled(
-                    Rect::from_center_size(pos2(center.x + offset, center.y), vec2(2.5, 10.0)),
+                    Rect::from_center_size(pos2(center.x + offset, center.y), vec2(2.2, 9.0)),
                     CornerRadius::same(1),
                     color,
                 );
@@ -280,7 +311,7 @@ fn paint_transport_glyph(
                 Stroke::NONE,
             ));
             painter.rect_filled(
-                Rect::from_center_size(pos2(center.x + 6.5, center.y), vec2(2.0, 10.0)),
+                Rect::from_center_size(pos2(center.x + 6.0, center.y), vec2(1.8, 9.0)),
                 CornerRadius::ZERO,
                 color,
             );
@@ -344,7 +375,7 @@ mod tests {
     fn preview_renders_headlessly_and_aspect_selection_is_stored() {
         let context = egui::Context::default();
         let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, 700.0))),
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, 500.0))),
             ..Default::default()
         };
         let mut session = EditorSession {

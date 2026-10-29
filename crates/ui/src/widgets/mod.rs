@@ -1,4 +1,5 @@
 mod common;
+pub(crate) mod controls;
 pub(crate) mod icons;
 
 pub mod about;

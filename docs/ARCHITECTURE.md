@@ -31,7 +31,7 @@ Tool xtask (separate scaffold)
 | `crates/engine` | Project model, commands, revision, selection, playback | Placeholder modules |
 | `crates/media` | Probe, decoder, encoder, cache, audio resampling | Placeholder modules |
 | `crates/renderer` | Context, pipelines, compositor, texture pool | Placeholder modules/shader stubs |
-| `crates/ui` | egui screens, navigation/UI state, theme, panels, display-only timeline, export form | M1 Home/Editor/Export shell; editing/media/playback placeholders |
+| `crates/ui` | egui screens, navigation/UI state, design tokens, nine-category library, tabbed inspector, monitor/timeline UI, export form | M1.2 Home/Editor/Export shell; editing/media/playback placeholders |
 | `apps/capcut-editor` | Executable composition root | Launches the eframe/egui window |
 | `xtask` | Automation | Prints scaffold-only message |
 
@@ -156,6 +156,6 @@ Read `TESTING.md` and `PERFORMANCE.md` for concrete gates and benchmark methodol
 
 Milestone ordering lives in `../ROADMAP.md`: (M0) baseline → (M1) desktop shell → (M2) core timeline and commands → (M3) real decoder → (M4) GPU preview → (M5) playback/seek → (M6) edits → (M7) subtitles/audio/export → (M8) compatibility/acceleration.
 
-The M1 shell exists and has been launched/resized/closed on Windows with placeholder screens and panels only. It contains no engine commands, project persistence, media access, playback, or encoding. The Home → temporary Editor → Export → Cancel flow and Home/Resume navigation are UI-only and do not save a project.
+The M1 shell exists and has been launched/resized/closed on Windows with placeholder screens and panels only. It contains no engine commands, project persistence, media access, playback, or encoding. The Home → temporary Editor → Export → Cancel flow and Home/Resume navigation are UI-only and do not save a project. The M1.2 visual pass adds a neutral charcoal/cyan design system, a 33/29/38 resizable workspace, an expanded timeline, nine category shells, a tabbed inspector, and a grouped export form. These remain presentation-only.
 
 Update this architecture only when code or an accepted design decision changes. Never mark a proposed box as implemented merely because a new empty source file appeared.

@@ -81,17 +81,15 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
                         action = TopBarAction::Export;
                     }
                     ui.add_space(6.0);
-                    let _ = common::disabled_tool_button(
+                    let _ = common::disabled_icon_button(
                         ui,
-                        "Redo",
+                        Icon::Redo,
                         "Redo history requires editor commands and is not implemented.",
-                        false,
                     );
-                    let _ = common::disabled_tool_button(
+                    let _ = common::disabled_icon_button(
                         ui,
-                        "Undo",
+                        Icon::Undo,
                         "Undo history requires editor commands and is not implemented.",
-                        false,
                     );
                 });
             });

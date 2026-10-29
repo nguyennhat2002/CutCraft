@@ -1,8 +1,8 @@
 //! Small shared shell widgets: headings, badges, empty states, and rows.
 
 use egui::{
-    vec2, Align, Color32, CornerRadius, CursorIcon, Frame, Layout, Margin, Response, RichText,
-    Sense, Stroke, Ui,
+    vec2, Color32, CornerRadius, CursorIcon, FontId, Frame, Margin, Response, RichText, Sense,
+    Stroke, StrokeKind, Ui,
 };
 
 use crate::theme::Palette;
@@ -19,43 +19,31 @@ pub fn section_heading(ui: &mut Ui, text: &str) -> Response {
 }
 
 /// Compact outlined badge, e.g. `PLACEHOLDER` or `EMPTY`.
+///
+/// Painted manually so layout contexts cannot stretch the pill vertically.
 pub fn badge(ui: &mut Ui, text: &str, color: Color32) -> Response {
-    Frame::new()
-        .fill(Palette::WIDGET_BG)
-        .stroke(Stroke::new(1.0, color.gamma_multiply(0.55)))
-        .corner_radius(CornerRadius::same(3))
-        .inner_margin(Margin::symmetric(5, 1))
-        .show(ui, |ui| {
-            ui.label(
-                RichText::new(text.to_ascii_uppercase())
-                    .size(8.5)
-                    .strong()
-                    .color(color),
-            )
-        })
-        .inner
+    let galley =
+        ui.painter()
+            .layout_no_wrap(text.to_ascii_uppercase(), FontId::proportional(8.5), color);
+    let size = galley.size() + vec2(10.0, 5.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(3), Palette::WIDGET_BG);
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(3),
+        Stroke::new(1.0, color.gamma_multiply(0.55)),
+        StrokeKind::Inside,
+    );
+    ui.painter()
+        .galley(rect.center() - galley.size() / 2.0, galley, color);
+    response
 }
 
 /// Small status indicator dot.
 pub fn status_dot(ui: &mut Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
     ui.painter().circle_filled(rect.center(), 3.0, color);
-}
-
-/// Disabled toolbar button with an explanatory hover message.
-pub fn disabled_tool_button(ui: &mut Ui, label: &str, hint: &str, accent: bool) -> Response {
-    let mut button = egui::Button::new(RichText::new(label).size(12.0).color(if accent {
-        Palette::ACCENT
-    } else {
-        Palette::TEXT_SECONDARY
-    }))
-    .min_size(vec2(0.0, 26.0));
-
-    if accent {
-        button = button.fill(Palette::ACCENT_BG);
-    }
-
-    ui.add_enabled(false, button).on_disabled_hover_text(hint)
 }
 
 /// Full-width disabled action, used by empty states.
@@ -130,6 +118,30 @@ pub fn compact_empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str) {
         });
 }
 
+/// Small disabled icon-only button with an explanation tooltip.
+pub fn disabled_icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
+    let hovered = response.hovered();
+    if hovered {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(4), Palette::WIDGET_BG);
+    }
+    icons::paint(
+        ui.painter(),
+        rect.shrink(5.0),
+        icon,
+        if hovered {
+            Palette::TEXT_MUTED
+        } else {
+            Palette::TEXT_DISABLED
+        },
+    );
+
+    response
+        .on_hover_cursor(CursorIcon::NotAllowed)
+        .on_hover_text(tooltip)
+}
+
 /// Small square icon-only button with a tooltip.
 pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
@@ -152,22 +164,4 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
     response
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text(tooltip)
-}
-
-/// Two-column reserved-property row for the inspector.
-pub fn property_row(ui: &mut Ui, label: &str, value: &str) {
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(label)
-                .size(11.5)
-                .color(Palette::TEXT_SECONDARY),
-        );
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(
-                RichText::new(value)
-                    .size(11.0)
-                    .color(Palette::TEXT_DISABLED),
-            );
-        });
-    });
 }

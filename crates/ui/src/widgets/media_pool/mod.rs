@@ -1,15 +1,17 @@
-//! Left library panel with Media, Audio, Text, Effects, and Transitions tabs.
+//! Left library panel with nine tool categories.
 //!
-//! All tabs show empty states. No media is read, decoded, or generated.
+//! Every category has a distinct UI shell. No media is read or generated and
+//! all editing actions are disabled.
 
 use egui::{
-    pos2, vec2, Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Rect, Response, RichText,
-    ScrollArea, Sense, Ui,
+    pos2, vec2, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin,
+    Rect, Response, RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui,
 };
 
 use crate::editor_state::{EditorSession, EditorTool};
 use crate::theme::Palette;
 use crate::widgets::common;
+use crate::widgets::controls;
 use crate::widgets::icons::{self, Icon};
 
 pub fn show(ui: &mut Ui, session: &mut EditorSession) {
@@ -20,27 +22,28 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
         });
     });
 
-    ui.add_space(6.0);
+    ui.add_space(5.0);
 
     ui.scope(|ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        for tool in EditorTool::ALL {
-            if tool_row(ui, tool, session.active_tool == tool).clicked() {
-                session.active_tool = tool;
+        ui.spacing_mut().item_spacing = vec2(2.0, 4.0);
+        ui.horizontal_wrapped(|ui| {
+            for tool in EditorTool::ALL {
+                if category_tab(ui, tool, session.active_tool == tool).clicked() {
+                    session.active_tool = tool;
+                }
             }
-        }
+        });
     });
 
-    ui.add_space(8.0);
+    ui.add_space(5.0);
     ui.separator();
-    ui.add_space(10.0);
+    ui.add_space(6.0);
 
     let _ = ScrollArea::vertical()
         .id_salt("library_scroll")
         .auto_shrink([false, false])
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
-            let (action, empty_title, empty_body, note) = tool_content(session.active_tool);
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(session.active_tool.label())
@@ -49,69 +52,260 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
                         .color(Palette::TEXT_PRIMARY),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    common::badge(ui, "Empty", Palette::TEXT_MUTED);
+                    common::badge(ui, "UI shell", Palette::TEXT_MUTED);
                 });
             });
-            ui.add_space(8.0);
+            ui.add_space(6.0);
 
-            common::disabled_action_button(ui, action, "This action is not implemented yet.");
-            ui.add_space(10.0);
-            common::compact_empty_state(
-                ui,
-                tool_icon(session.active_tool),
-                empty_title,
-                empty_body,
-            );
-            ui.add_space(8.0);
-            ui.add(
-                egui::Label::new(RichText::new(note).size(9.5).color(Palette::TEXT_DISABLED))
+            match session.active_tool {
+                EditorTool::Media => media_body(ui),
+                EditorTool::Audio => audio_body(ui),
+                EditorTool::Text => text_body(ui),
+                EditorTool::Stickers => locked_body(
+                    ui,
+                    Icon::Stickers,
+                    "Sticker library",
+                    "Sticker import and rendering are not implemented in this build.",
+                    &["No stickers"],
+                ),
+                EditorTool::Effects => locked_body(
+                    ui,
+                    Icon::Effects,
+                    "Effects library",
+                    "Video effects and filters are not implemented in this build.",
+                    &["No effects"],
+                ),
+                EditorTool::Transitions => locked_body(
+                    ui,
+                    Icon::Transitions,
+                    "Transition library",
+                    "Clip transitions are not implemented in this build.",
+                    &["No transitions"],
+                ),
+                EditorTool::Captions => captions_body(ui),
+                EditorTool::Filters => locked_body(
+                    ui,
+                    Icon::Filters,
+                    "Filter library",
+                    "Color filters are not implemented in this build.",
+                    &["No filters"],
+                ),
+                EditorTool::Adjustment => adjustment_body(ui),
+            }
+        });
+}
+
+fn media_body(ui: &mut Ui) {
+    subtab_row(ui, &["Local", "Stock", "Cloud"]);
+    ui.add_space(6.0);
+    disabled_search(ui, "Search media");
+    ui.add_space(5.0);
+    let _ =
+        common::disabled_action_button(ui, "+  Import Media", "Media import is not implemented.");
+    ui.add_space(8.0);
+    media_grid_empty(ui);
+    ui.add_space(6.0);
+    ui.add(
+        egui::Label::new(
+            RichText::new("No files are read and no video is decoded in this build.")
+                .size(9.5)
+                .color(Palette::TEXT_DISABLED),
+        )
+        .wrap(),
+    );
+}
+
+fn audio_body(ui: &mut Ui) {
+    subtab_row(ui, &["Music", "Sound effects", "Voiceover"]);
+    ui.add_space(6.0);
+    disabled_search(ui, "Search audio");
+    ui.add_space(5.0);
+    let _ =
+        common::disabled_action_button(ui, "+  Import Audio", "Audio import is not implemented.");
+    ui.add_space(8.0);
+    common::compact_empty_state(
+        ui,
+        Icon::Audio,
+        "No audio imported",
+        "Music, sound effects, and voiceover clips will appear here once media support exists.",
+    );
+    ui.add_space(6.0);
+    waveform_placeholder(ui);
+}
+
+fn text_body(ui: &mut Ui) {
+    subtab_row(ui, &["Basic", "Templates"]);
+    ui.add_space(6.0);
+    let _ = common::disabled_action_button(ui, "+  Add Text", "Text editing is not implemented.");
+    ui.add_space(8.0);
+    Frame::new()
+        .fill(Palette::CARD_BG)
+        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
+        .corner_radius(CornerRadius::same(5))
+        .inner_margin(Margin::same(14))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new("Aa")
+                        .size(34.0)
+                        .strong()
+                        .color(Palette::TEXT_MUTED),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("Text and subtitles")
+                        .size(12.0)
+                        .strong()
+                        .color(Palette::TEXT_SECONDARY),
+                );
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(
+                            "Titles, captions, and text styling are not implemented. \
+                             This panel is a layout placeholder.",
+                        )
+                        .size(9.5)
+                        .color(Palette::TEXT_MUTED),
+                    )
                     .wrap(),
+                );
+            });
+        });
+}
+
+fn captions_body(ui: &mut Ui) {
+    subtab_row(ui, &["Auto", "From file"]);
+    ui.add_space(6.0);
+    let _ = common::disabled_action_button(
+        ui,
+        "Generate captions",
+        "Speech recognition and caption generation are not implemented.",
+    );
+    ui.add_space(6.0);
+    let _ = common::disabled_action_button(
+        ui,
+        "Import captions (.srt)",
+        "Caption file import is not implemented.",
+    );
+    ui.add_space(8.0);
+    common::compact_empty_state(
+        ui,
+        Icon::Captions,
+        "No captions",
+        "Captions require a decoded video and speech processing, which are not available.",
+    );
+}
+
+fn adjustment_body(ui: &mut Ui) {
+    controls::section_card(ui, "Light", |ui| {
+        let _ = controls::disabled_slider(ui, "Brightness", 0.0, -100.0..=100.0);
+        let _ = controls::disabled_slider(ui, "Contrast", 0.0, -100.0..=100.0);
+        let _ = controls::disabled_slider(ui, "Exposure", 0.0, -100.0..=100.0);
+    });
+    ui.add_space(6.0);
+    controls::section_card(ui, "Color", |ui| {
+        let _ = controls::disabled_slider(ui, "Saturation", 0.0, -100.0..=100.0);
+        let _ = controls::disabled_slider(ui, "Temperature", 0.0, -100.0..=100.0);
+        let _ = controls::disabled_slider(ui, "Tint", 0.0, -100.0..=100.0);
+    });
+    ui.add_space(6.0);
+    let reset = ui.add_enabled(false, egui::Button::new("Reset adjustments"));
+    let _ = reset.on_disabled_hover_text("Adjustment editing is not implemented.");
+}
+
+fn locked_body(ui: &mut Ui, icon: Icon, title: &str, body: &str, tile_labels: &[&str]) {
+    disabled_search(ui, "Search library");
+    ui.add_space(6.0);
+    let _ = common::disabled_action_button(ui, "Browse library", body);
+    ui.add_space(8.0);
+
+    let available = ui.available_width();
+    let columns = if available < 320.0 { 2 } else { 3 };
+    let gap = 6.0;
+    let tile_width = ((available - gap * (columns - 1) as f32) / columns as f32).max(60.0);
+
+    for row in tile_labels.chunks(columns) {
+        ui.horizontal(|ui| {
+            for label in row {
+                locked_tile(ui, tile_width, icon, label);
+                ui.add_space(gap);
+            }
+        });
+        ui.add_space(4.0);
+    }
+
+    ui.add_space(4.0);
+    common::compact_empty_state(ui, icon, title, body);
+}
+
+fn locked_tile(ui: &mut Ui, width: f32, icon: Icon, label: &str) {
+    Frame::new()
+        .fill(Palette::CARD_BG)
+        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
+        .corner_radius(CornerRadius::same(4))
+        .inner_margin(Margin::same(8))
+        .show(ui, |ui| {
+            ui.set_min_size(vec2(width - 16.0, 64.0));
+            let (icon_rect, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+            icons::paint(ui.painter(), icon_rect, icon, Palette::TEXT_DISABLED);
+            ui.label(RichText::new(label).size(9.5).color(Palette::TEXT_DISABLED));
+            ui.label(
+                RichText::new("Unavailable")
+                    .size(8.0)
+                    .color(Palette::TEXT_DISABLED),
             );
         });
 }
 
-fn tool_row(ui: &mut Ui, tool: EditorTool, selected: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+fn category_tab(ui: &mut Ui, tool: EditorTool, selected: bool) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(53.0, 46.0), Sense::click());
     let hovered = response.hovered();
+    let painter = ui.painter_at(rect);
 
     if selected {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(6), Palette::ACCENT_BG);
-        ui.painter().rect_filled(
-            Rect::from_min_size(rect.min, vec2(3.0, rect.height())),
-            CornerRadius::same(2),
+        painter.rect_filled(rect, CornerRadius::same(4), Palette::ACCENT_BG);
+        painter.rect_filled(
+            Rect::from_min_max(
+                pos2(rect.left() + 8.0, rect.bottom() - 2.0),
+                pos2(rect.right() - 8.0, rect.bottom()),
+            ),
+            CornerRadius::same(1),
             Palette::ACCENT,
         );
     } else if hovered {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(6), Palette::WIDGET_BG);
+        painter.rect_filled(rect, CornerRadius::same(4), Palette::WIDGET_BG);
     }
 
     let icon_rect =
-        Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(15.0, 15.0));
+        Rect::from_center_size(pos2(rect.center().x, rect.top() + 15.0), vec2(17.0, 17.0));
     icons::paint(
-        ui.painter(),
+        &painter,
         icon_rect,
         tool_icon(tool),
         if selected {
             Palette::ACCENT
+        } else if hovered {
+            Palette::TEXT_PRIMARY
         } else {
             Palette::TEXT_MUTED
         },
     );
-    ui.painter().text(
-        pos2(rect.left() + 34.0, rect.center().y),
-        Align2::LEFT_CENTER,
+    painter.text(
+        pos2(rect.center().x, rect.top() + 34.0),
+        Align2::CENTER_CENTER,
         tool.label(),
-        FontId::proportional(12.0),
-        if selected || hovered {
+        FontId::proportional(10.0),
+        if selected {
             Palette::TEXT_PRIMARY
         } else {
-            Palette::TEXT_SECONDARY
+            Palette::TEXT_MUTED
         },
     );
 
-    response.on_hover_cursor(CursorIcon::PointingHand)
+    response
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(tool.label())
 }
 
 fn tool_icon(tool: EditorTool) -> Icon {
@@ -119,44 +313,148 @@ fn tool_icon(tool: EditorTool) -> Icon {
         EditorTool::Media => Icon::Media,
         EditorTool::Audio => Icon::Audio,
         EditorTool::Text => Icon::Text,
+        EditorTool::Stickers => Icon::Stickers,
         EditorTool::Effects => Icon::Effects,
         EditorTool::Transitions => Icon::Transitions,
+        EditorTool::Captions => Icon::Captions,
+        EditorTool::Filters => Icon::Filters,
+        EditorTool::Adjustment => Icon::Settings,
     }
 }
 
-fn tool_content(tool: EditorTool) -> (&'static str, &'static str, &'static str, &'static str) {
-    match tool {
-        EditorTool::Media => (
-            "+  Import Media",
-            "No media in this session",
-            "Imported clips will appear here once media import and decoding are implemented.",
-            "No files are read and no video is decoded in this build.",
-        ),
-        EditorTool::Audio => (
-            "+  Import Audio",
-            "No audio in this session",
-            "Imported audio and waveforms will appear here once audio support is implemented.",
-            "No audio files are read and no audio is decoded in this build.",
-        ),
-        EditorTool::Text => (
-            "+  Add Text",
-            "No text yet",
-            "Titles and subtitles will appear here once text editing is implemented.",
-            "Text editing is a placeholder in this build.",
-        ),
-        EditorTool::Effects => (
-            "Browse Effects",
-            "No effects available",
-            "Video effects and filters are not implemented yet.",
-            "Effect processing is a placeholder in this build.",
-        ),
-        EditorTool::Transitions => (
-            "Browse Transitions",
-            "No transitions available",
-            "Transitions between clips are not implemented yet.",
-            "Transition processing is a placeholder in this build.",
-        ),
+fn subtab_row(ui: &mut Ui, labels: &[&str]) {
+    ui.horizontal_wrapped(|ui| {
+        for (index, label) in labels.iter().enumerate() {
+            let selected = index == 0;
+            let response = ui.add_enabled(
+                false,
+                egui::Button::new(RichText::new(*label).size(9.5).color(if selected {
+                    Palette::ACCENT
+                } else {
+                    Palette::TEXT_MUTED
+                }))
+                .selected(selected)
+                .min_size(vec2(0.0, 22.0)),
+            );
+            let _ = response.on_disabled_hover_text("Library filtering is not implemented yet.");
+        }
+    });
+}
+
+fn disabled_search(ui: &mut Ui, hint: &str) {
+    let mut search = String::new();
+    let response = ui.add_enabled(
+        false,
+        TextEdit::singleline(&mut search)
+            .hint_text(hint)
+            .desired_width(ui.available_width()),
+    );
+    let _ = response.on_disabled_hover_text("Search is not implemented in this build.");
+}
+
+fn media_grid_empty(ui: &mut Ui) {
+    Frame::new()
+        .fill(Palette::APP_BG)
+        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
+        .corner_radius(CornerRadius::same(5))
+        .inner_margin(Margin::same(10))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            let height = ui.available_height().clamp(180.0, 300.0);
+            let (rect, _) =
+                ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+            let painter = ui.painter_at(rect);
+
+            let gap = 8.0;
+            let columns = 3;
+            let rows = 2;
+            let tile_width = (rect.width() - gap * (columns as f32 - 1.0)) / columns as f32;
+            let tile_height =
+                (rect.height() - gap * (rows as f32 - 1.0) - 24.0) / rows as f32 - 6.0;
+
+            for row in 0..rows {
+                for column in 0..columns {
+                    let tile = Rect::from_min_size(
+                        pos2(
+                            rect.left() + column as f32 * (tile_width + gap),
+                            rect.top() + row as f32 * (tile_height + gap),
+                        ),
+                        vec2(tile_width, tile_height),
+                    );
+                    painter.rect_filled(tile, CornerRadius::same(4), Palette::CARD_BG);
+                    painter.rect_stroke(
+                        tile,
+                        CornerRadius::same(4),
+                        Stroke::new(1.0, Palette::BORDER_SUBTLE),
+                        StrokeKind::Inside,
+                    );
+                    let icon_center = pos2(tile.center().x, tile.center().y - 4.0);
+                    let icon_rect = Rect::from_center_size(icon_center, vec2(18.0, 18.0));
+                    icons::paint(&painter, icon_rect, Icon::Media, Palette::TEXT_DISABLED);
+                }
+            }
+
+            let overlay =
+                Rect::from_center_size(rect.center(), vec2((rect.width() - 32.0).min(280.0), 76.0));
+            painter.rect_filled(
+                overlay,
+                CornerRadius::same(5),
+                Color32::from_rgba_unmultiplied(24, 24, 25, 240),
+            );
+            painter.rect_stroke(
+                overlay,
+                CornerRadius::same(5),
+                Stroke::new(1.0, Palette::BORDER),
+                StrokeKind::Inside,
+            );
+            painter.text(
+                overlay.center() - vec2(0.0, 10.0),
+                Align2::CENTER_CENTER,
+                "No media imported",
+                FontId::proportional(12.0),
+                Palette::TEXT_SECONDARY,
+            );
+            painter.text(
+                overlay.center() + vec2(0.0, 10.0),
+                Align2::CENTER_CENTER,
+                "Import is not available in this build",
+                FontId::proportional(9.0),
+                Palette::TEXT_DISABLED,
+            );
+        });
+}
+
+fn waveform_placeholder(ui: &mut Ui) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 76.0), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, CornerRadius::same(4), Palette::APP_BG);
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(4),
+        Stroke::new(1.0, Palette::BORDER_SUBTLE),
+        StrokeKind::Inside,
+    );
+    let bars = 26;
+    let step = rect.width() / bars as f32;
+    for index in 0..bars {
+        let height = ((index * 37 % 23) as f32 / 23.0).max(0.12);
+        let x = rect.left() + index as f32 * step + step * 0.35;
+        let half = rect.height() * height * 0.32;
+        painter.line_segment(
+            [
+                pos2(x, rect.center().y - half),
+                pos2(x, rect.center().y + half),
+            ],
+            Stroke::new(1.0, Palette::WIDGET_HOVER),
+        );
     }
+    painter.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        "No audio",
+        FontId::proportional(10.0),
+        Palette::TEXT_DISABLED,
+    );
 }
 
 #[cfg(test)]
@@ -164,7 +462,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_library_tab_renders_without_media() {
+    fn every_library_category_renders_without_media() {
         let context = egui::Context::default();
 
         for tool in EditorTool::ALL {
@@ -173,7 +471,7 @@ mod tests {
                 ..EditorSession::default()
             };
             let input = egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 700.0))),
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(520.0, 620.0))),
                 ..Default::default()
             };
             let output = context.run_ui(input, |ui| show(ui, &mut session));

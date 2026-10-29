@@ -12,5 +12,6 @@ pub mod shortcuts;
 pub mod theme;
 pub mod timecode;
 pub mod widgets;
+pub mod workspace_layout;
 
 pub use app::{native_options, CutCraftApp};

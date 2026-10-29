@@ -2,15 +2,15 @@
 
 An independent Rust desktop video editor in early development.
 
-Current state: the **M1 desktop application shell** (egui/eframe 0.37) provides:
+Current state: the **M1.2 desktop application shell** (egui/eframe 0.37) provides:
 
-- a dark homepage with navigation, Create Project, Recent Projects empty state,
-  and clearly marked upcoming features;
-- a temporary in-memory editor session with a project bar, library tabs
-  (Media, Audio, Text, Effects, Transitions), 16:9/9:16 preview canvas,
-  inspector placeholders, and an empty timeline;
-- a modal export settings form (filename, folder, resolution, frame rate,
-  H.264/MP4, bitrate preset, audio) with validation.
+- a charcoal/cyan homepage with a Create Project banner, feature cards,
+  Recent Projects empty state, search/view placeholders, and honest temporary-session messaging;
+- a resizable editor workspace (approximately 33/29/38 library/preview/inspector),
+  nine tool categories, a tabbed property Inspector, a 16:9/9:16 monitor, and a
+  four-track timeline with zoom, track controls, and horizontal scrolling;
+- a modal export form with output file/folder, format, codec, resolution, frame
+  rate, color space, bitrate, audio, and validation.
 
 Media import, decoding, preview rendering, playback, timeline editing, project
 persistence, CapCut draft compatibility, and export encoding are **not

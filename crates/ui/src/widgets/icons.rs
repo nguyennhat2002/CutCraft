@@ -15,15 +15,26 @@ pub(crate) enum Icon {
     Media,
     Audio,
     Text,
+    Stickers,
     Effects,
     Transitions,
+    Captions,
+    Filters,
     Folder,
     Export,
     Close,
+    Eye,
+    Lock,
+    Volume,
+    Undo,
+    Redo,
+    Grid,
+    List,
 }
 
 pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
     let stroke = Stroke::new(1.5, color);
+    let thin = Stroke::new(1.2, color);
     let area = rect.shrink(2.0);
 
     match icon {
@@ -45,12 +56,7 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 ),
                 pos2(area.center().x + area.width() * 0.14, bottom),
             );
-            painter.rect_stroke(
-                door,
-                CornerRadius::same(1),
-                Stroke::new(1.2, color),
-                StrokeKind::Inside,
-            );
+            painter.rect_stroke(door, CornerRadius::same(1), thin, StrokeKind::Inside);
         }
         Icon::Projects | Icon::Folder => {
             let tab = Rect::from_min_max(
@@ -65,20 +71,12 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 area.right_bottom(),
             );
             painter.rect_stroke(body, CornerRadius::same(2), stroke, StrokeKind::Inside);
-            painter.rect_stroke(
-                tab,
-                CornerRadius::same(1),
-                Stroke::new(1.2, color),
-                StrokeKind::Inside,
-            );
+            painter.rect_stroke(tab, CornerRadius::same(1), thin, StrokeKind::Inside);
         }
         Icon::Settings => {
             for (index, fraction) in [0.26_f32, 0.5, 0.74].into_iter().enumerate() {
                 let y = area.top() + area.height() * fraction;
-                painter.line_segment(
-                    [pos2(area.left(), y), pos2(area.right(), y)],
-                    Stroke::new(1.3, color),
-                );
+                painter.line_segment([pos2(area.left(), y), pos2(area.right(), y)], thin);
                 let knob_x = area.left() + area.width() * [0.68_f32, 0.34, 0.56][index];
                 painter.circle_filled(pos2(knob_x, y), 2.2, color);
             }
@@ -131,6 +129,40 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 color,
             );
         }
+        Icon::Stickers => {
+            painter.rect_stroke(area, CornerRadius::same(4), stroke, StrokeKind::Inside);
+            for x in [0.34_f32, 0.66] {
+                painter.circle_filled(
+                    pos2(
+                        area.left() + area.width() * x,
+                        area.top() + area.height() * 0.4,
+                    ),
+                    1.5,
+                    color,
+                );
+            }
+            let smile_y = area.top() + area.height() * 0.58;
+            painter.line_segment(
+                [
+                    pos2(area.left() + area.width() * 0.32, smile_y),
+                    pos2(
+                        area.left() + area.width() * 0.5,
+                        area.bottom() - area.height() * 0.24,
+                    ),
+                ],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(
+                        area.left() + area.width() * 0.5,
+                        area.bottom() - area.height() * 0.24,
+                    ),
+                    pos2(area.left() + area.width() * 0.68, smile_y),
+                ],
+                thin,
+            );
+        }
         Icon::Effects => {
             let center = area.center();
             let long = area.height() * 0.46;
@@ -154,38 +186,63 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                     pos2(center.x - short, center.y - short),
                     pos2(center.x + short, center.y + short),
                 ],
-                Stroke::new(1.2, color),
+                thin,
             );
             painter.line_segment(
                 [
                     pos2(center.x + short, center.y - short),
                     pos2(center.x - short, center.y + short),
                 ],
-                Stroke::new(1.2, color),
+                thin,
             );
         }
         Icon::Transitions => {
             let half_width = area.width() * 0.36;
-            let left_triangle = vec![
-                pos2(area.left(), area.top()),
-                pos2(area.left() + half_width, area.center().y),
-                pos2(area.left(), area.bottom()),
-            ];
-            let right_triangle = vec![
-                pos2(area.right(), area.top()),
-                pos2(area.right() - half_width, area.center().y),
-                pos2(area.right(), area.bottom()),
-            ];
             painter.add(Shape::convex_polygon(
-                left_triangle,
+                vec![
+                    pos2(area.left(), area.top()),
+                    pos2(area.left() + half_width, area.center().y),
+                    pos2(area.left(), area.bottom()),
+                ],
                 Color32::TRANSPARENT,
                 stroke,
             ));
             painter.add(Shape::convex_polygon(
-                right_triangle,
+                vec![
+                    pos2(area.right(), area.top()),
+                    pos2(area.right() - half_width, area.center().y),
+                    pos2(area.right(), area.bottom()),
+                ],
                 Color32::TRANSPARENT,
                 stroke,
             ));
+        }
+        Icon::Captions => {
+            painter.rect_stroke(area, CornerRadius::same(2), stroke, StrokeKind::Inside);
+            for y in [0.38_f32, 0.58] {
+                painter.line_segment(
+                    [
+                        pos2(
+                            area.left() + area.width() * 0.18,
+                            area.top() + area.height() * y,
+                        ),
+                        pos2(
+                            area.right() - area.width() * 0.18,
+                            area.top() + area.height() * y,
+                        ),
+                    ],
+                    thin,
+                );
+            }
+        }
+        Icon::Filters => {
+            for x in [0.3_f32, 0.5, 0.7] {
+                painter.circle_stroke(
+                    pos2(area.left() + area.width() * x, area.center().y),
+                    area.height() * 0.24,
+                    stroke,
+                );
+            }
         }
         Icon::Export => {
             let top = area.top() + area.height() * 0.12;
@@ -235,6 +292,172 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             painter.line_segment([area.left_top(), area.right_bottom()], stroke);
             painter.line_segment([area.right_top(), area.left_bottom()], stroke);
         }
+        Icon::Eye => {
+            painter.line_segment(
+                [
+                    pos2(area.left(), area.center().y),
+                    pos2(area.center().x, area.top() + area.height() * 0.24),
+                ],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(area.center().x, area.top() + area.height() * 0.24),
+                    pos2(area.right(), area.center().y),
+                ],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(area.right(), area.center().y),
+                    pos2(area.center().x, area.bottom() - area.height() * 0.24),
+                ],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(area.center().x, area.bottom() - area.height() * 0.24),
+                    pos2(area.left(), area.center().y),
+                ],
+                thin,
+            );
+            painter.circle_filled(area.center(), area.height() * 0.13, color);
+        }
+        Icon::Lock => {
+            let body = Rect::from_min_max(
+                pos2(
+                    area.left() + area.width() * 0.18,
+                    area.top() + area.height() * 0.44,
+                ),
+                area.right_bottom(),
+            );
+            painter.rect_stroke(body, CornerRadius::same(2), thin, StrokeKind::Inside);
+            let shackle_left = area.left() + area.width() * 0.3;
+            let shackle_right = area.right() - area.width() * 0.3;
+            let shackle_top = area.top() + area.height() * 0.16;
+            painter.line_segment(
+                [
+                    pos2(shackle_left, body.top()),
+                    pos2(shackle_left, shackle_top),
+                ],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(shackle_left, shackle_top),
+                    pos2(shackle_right, shackle_top),
+                ],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(shackle_right, shackle_top),
+                    pos2(shackle_right, body.top()),
+                ],
+                thin,
+            );
+        }
+        Icon::Volume => {
+            let speaker = vec![
+                pos2(area.left(), area.center().y - area.height() * 0.16),
+                pos2(
+                    area.left() + area.width() * 0.28,
+                    area.center().y - area.height() * 0.16,
+                ),
+                pos2(
+                    area.left() + area.width() * 0.52,
+                    area.center().y - area.height() * 0.36,
+                ),
+                pos2(
+                    area.left() + area.width() * 0.52,
+                    area.center().y + area.height() * 0.36,
+                ),
+                pos2(
+                    area.left() + area.width() * 0.28,
+                    area.center().y + area.height() * 0.16,
+                ),
+                pos2(area.left(), area.center().y + area.height() * 0.16),
+            ];
+            painter.add(Shape::convex_polygon(speaker, Color32::TRANSPARENT, thin));
+            painter.line_segment(
+                [
+                    pos2(
+                        area.left() + area.width() * 0.65,
+                        area.center().y - area.height() * 0.22,
+                    ),
+                    pos2(area.left() + area.width() * 0.8, area.center().y),
+                ],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(area.left() + area.width() * 0.8, area.center().y),
+                    pos2(
+                        area.left() + area.width() * 0.65,
+                        area.center().y + area.height() * 0.22,
+                    ),
+                ],
+                thin,
+            );
+        }
+        Icon::Undo | Icon::Redo => {
+            let left = area.left() + area.width() * 0.16;
+            let right = area.right() - area.width() * 0.16;
+            let y = area.center().y + area.height() * 0.12;
+            painter.line_segment([pos2(left, y), pos2(right, y)], stroke);
+            let tip_x = if icon == Icon::Undo { left } else { right };
+            let direction = if icon == Icon::Undo { 1.0 } else { -1.0 };
+            painter.line_segment(
+                [
+                    pos2(tip_x, y),
+                    pos2(
+                        tip_x + direction * area.width() * 0.22,
+                        y - area.height() * 0.22,
+                    ),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    pos2(tip_x, y),
+                    pos2(
+                        tip_x + direction * area.width() * 0.22,
+                        y + area.height() * 0.22,
+                    ),
+                ],
+                stroke,
+            );
+        }
+        Icon::Grid => {
+            let gap = area.width() * 0.12;
+            let cell = (area.width() - gap) * 0.5;
+            for (x, y) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+                let min = pos2(
+                    area.left() + x * (cell + gap),
+                    area.top() + y * (cell + gap),
+                );
+                painter.rect_stroke(
+                    Rect::from_min_size(min, vec2(cell, cell)),
+                    CornerRadius::same(1),
+                    thin,
+                    StrokeKind::Inside,
+                );
+            }
+        }
+        Icon::List => {
+            for (index, y) in [0.25_f32, 0.5, 0.75].into_iter().enumerate() {
+                let py = area.top() + area.height() * y;
+                painter.circle_filled(pos2(area.left() + 1.5, py), 1.2, color);
+                painter.line_segment(
+                    [
+                        pos2(area.left() + area.width() * 0.18, py),
+                        pos2(area.right(), py),
+                    ],
+                    thin,
+                );
+                let _ = index;
+            }
+        }
     }
 }
 
@@ -253,11 +476,21 @@ mod tests {
                 Icon::Media,
                 Icon::Audio,
                 Icon::Text,
+                Icon::Stickers,
                 Icon::Effects,
                 Icon::Transitions,
+                Icon::Captions,
+                Icon::Filters,
                 Icon::Folder,
                 Icon::Export,
                 Icon::Close,
+                Icon::Eye,
+                Icon::Lock,
+                Icon::Volume,
+                Icon::Undo,
+                Icon::Redo,
+                Icon::Grid,
+                Icon::List,
             ];
             for icon in icons {
                 let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::hover());
