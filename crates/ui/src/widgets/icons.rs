@@ -1,7 +1,8 @@
 //! Small original vector icons drawn with egui primitives.
 //!
 //! These are simple geometric marks for the CutCraft shell. No third-party
-//! icon font or artwork is embedded.
+//! icon font or artwork is embedded. Corner radii inside this module describe
+//! glyph geometry and are deliberately independent of the shell `Radii` scale.
 
 use egui::{
     pos2, vec2, Align2, Color32, CornerRadius, FontId, Painter, Rect, Shape, Stroke, StrokeKind,

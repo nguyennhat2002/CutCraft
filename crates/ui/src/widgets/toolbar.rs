@@ -2,14 +2,15 @@
 //! placeholders, and the Export entry point.
 
 use egui::{
-    pos2, vec2, Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Label, Layout, Margin,
-    Panel, Rect, Response, RichText, Sense, Stroke, Ui,
+    pos2, vec2, Align, Align2, CursorIcon, FontId, Frame, Label, Layout, Margin, Panel, Rect,
+    Response, RichText, Sense, Stroke, Ui,
 };
 
 use crate::config;
 use crate::editor_state::EditorSession;
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::widgets::common;
+use crate::widgets::common::focus_ring;
 use crate::widgets::icons::{self, Icon};
 use crate::widgets::menu_bar;
 
@@ -98,10 +99,14 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
 fn home_button(ui: &mut Ui) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(58.0, 28.0), Sense::click());
     let hovered = response.hovered();
-    if hovered {
+    if response.is_pointer_button_down_on() {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(6), Palette::WIDGET_BG);
+            .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_ACTIVE);
+    } else if hovered {
+        ui.painter()
+            .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_BG);
     }
+    focus_ring(ui, &response, rect.shrink(1.0), Radii::CONTROL);
 
     let icon_rect =
         Rect::from_center_size(pos2(rect.left() + 12.0, rect.center().y), vec2(13.0, 13.0));
@@ -110,7 +115,7 @@ fn home_button(ui: &mut Ui) -> Response {
         icon_rect,
         Icon::Home,
         if hovered {
-            Palette::ACCENT
+            Palette::TEXT_PRIMARY
         } else {
             Palette::TEXT_SECONDARY
         },
@@ -137,7 +142,7 @@ fn home_button(ui: &mut Ui) -> Response {
 fn brand_mark(ui: &mut Ui) {
     let (mark_rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
     let painter = ui.painter_at(mark_rect);
-    painter.rect_filled(mark_rect, CornerRadius::same(5), Palette::ACCENT);
+    painter.rect_filled(mark_rect, Radii::CONTROL, Palette::ACCENT);
     painter.add(egui::Shape::convex_polygon(
         vec![
             pos2(mark_rect.center().x - 2.0, mark_rect.center().y - 4.0),

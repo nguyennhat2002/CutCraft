@@ -4,8 +4,8 @@
 //! implemented and the Export action is permanently disabled.
 
 use egui::{
-    vec2, Align, Align2, ComboBox, Context, CornerRadius, DragValue, Frame, Id, Label, Layout,
-    Margin, RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui,
+    vec2, Align, Align2, ComboBox, Context, DragValue, Frame, Id, Label, Layout, Margin, RichText,
+    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui,
 };
 
 use crate::config;
@@ -14,7 +14,7 @@ use crate::export_settings::{
     BitratePreset, ExportCodec, ExportFormat, ExportFrameRate, ExportResolution,
     CUSTOM_BITRATE_MAX_KBPS, CUSTOM_BITRATE_MIN_KBPS, MAX_FILENAME_CHARS,
 };
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::widgets::common;
 use crate::widgets::controls;
 use crate::widgets::icons::Icon;
@@ -39,7 +39,7 @@ pub fn show(context: &Context, session: &mut EditorSession) {
             Frame::new()
                 .fill(Palette::MODAL_BG)
                 .stroke(Stroke::new(1.0, Palette::BORDER))
-                .corner_radius(CornerRadius::same(8))
+                .corner_radius(Radii::DIALOG)
                 .inner_margin(Margin::ZERO),
         )
         .show(context, |ui| {
@@ -150,10 +150,10 @@ fn cover_panel(ui: &mut Ui, session: &EditorSession, body_height: f32) {
     let cover_height = (width * 16.0 / 9.0).min(body_height - 92.0).max(160.0);
     let (cover, _) = ui.allocate_exact_size(vec2(width, cover_height), Sense::hover());
     let painter = ui.painter_at(cover);
-    painter.rect_filled(cover, CornerRadius::same(5), Palette::CANVAS);
+    painter.rect_filled(cover, Radii::CONTROL, Palette::CANVAS);
     painter.rect_stroke(
         cover,
-        CornerRadius::same(5),
+        Radii::CONTROL,
         Stroke::new(1.0, Palette::BORDER_SUBTLE),
         StrokeKind::Inside,
     );

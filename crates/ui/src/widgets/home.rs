@@ -4,15 +4,14 @@
 //! project data is temporary UI state; nothing is read from or written to disk.
 
 use egui::{
-    pos2, vec2, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin,
-    Mesh, Panel, Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke, StrokeKind, TextEdit,
-    Ui,
+    pos2, vec2, Align, Align2, Color32, CursorIcon, FontId, Frame, Layout, Margin, Mesh, Panel,
+    Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke, StrokeKind, TextEdit, Ui,
 };
 
 use crate::app_state::{AppState, Screen};
 use crate::config;
-use crate::theme::Palette;
-use crate::widgets::common;
+use crate::theme::{Palette, Radii};
+use crate::widgets::common::{self, focus_ring, focus_ring_colored};
 use crate::widgets::icons::{self, Icon};
 
 pub fn show(ui: &mut Ui, state: &mut AppState) {
@@ -115,7 +114,7 @@ fn brand(ui: &mut Ui) {
     ui.horizontal(|ui| {
         let (mark_rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
         let painter = ui.painter_at(mark_rect);
-        painter.rect_filled(mark_rect, CornerRadius::same(7), Palette::ACCENT);
+        painter.rect_filled(mark_rect, Radii::CARD, Palette::ACCENT);
         painter.add(Shape::convex_polygon(
             vec![
                 pos2(mark_rect.center().x - 3.0, mark_rect.center().y - 5.5),
@@ -151,11 +150,15 @@ fn nav_row(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Response {
 
     if selected {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(5), Palette::ACCENT_BG);
+            .rect_filled(rect, Radii::CONTROL, Palette::ACCENT_BG);
+    } else if response.is_pointer_button_down_on() {
+        ui.painter()
+            .rect_filled(rect, Radii::CONTROL, Palette::HOME_CARD_HOVER);
     } else if hovered {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(5), Palette::HOME_CARD);
+            .rect_filled(rect, Radii::CONTROL, Palette::HOME_CARD);
     }
+    focus_ring(ui, &response, rect.shrink(1.0), Radii::CONTROL);
 
     let icon_rect =
         Rect::from_center_size(pos2(rect.left() + 16.0, rect.center().y), vec2(15.0, 15.0));
@@ -241,7 +244,7 @@ fn sidebar_promo(ui: &mut Ui) {
     Frame::new()
         .fill(Palette::HOME_CARD)
         .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
-        .corner_radius(CornerRadius::same(8))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(11))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -331,6 +334,20 @@ fn create_banner(ui: &mut Ui, state: &mut AppState) {
     let height = if width < 760.0 { 132.0 } else { 146.0 };
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     paint_banner_background(ui, rect, response.hovered());
+    if response.is_pointer_button_down_on() {
+        ui.painter().rect_filled(
+            rect,
+            Radii::LARGE_CARD,
+            Color32::from_rgba_unmultiplied(0, 0, 0, 18),
+        );
+    }
+    focus_ring_colored(
+        ui,
+        &response,
+        rect.shrink(1.0),
+        Radii::LARGE_CARD,
+        Palette::ON_ACCENT,
+    );
 
     let painter = ui.painter_at(rect);
     let font = FontId::proportional(22.0);
@@ -350,7 +367,7 @@ fn create_banner(ui: &mut Ui, state: &mut AppState) {
     );
     painter.rect_filled(
         icon_rect,
-        CornerRadius::same(7),
+        Radii::CONTROL,
         Color32::from_rgb(0x08, 0x11, 0x13),
     );
     let plus = Stroke::new(1.6, Palette::ACCENT_LIGHT);
@@ -396,7 +413,7 @@ fn create_banner(ui: &mut Ui, state: &mut AppState) {
         );
         ui.painter().rect_filled(
             resume_rect,
-            CornerRadius::same(5),
+            Radii::CONTROL,
             Color32::from_rgba_unmultiplied(7, 18, 20, 210),
         );
         ui.painter().text(
@@ -410,13 +427,20 @@ fn create_banner(ui: &mut Ui, state: &mut AppState) {
             egui::WidgetInfo::labeled(egui::accesskit::Role::Button, true, "Resume editing")
         });
         resume_clicked = chip.clicked();
-        if chip.hovered() {
+        if chip.is_pointer_button_down_on() {
             ui.painter().rect_filled(
                 resume_rect,
-                CornerRadius::same(5),
+                Radii::CONTROL,
+                Color32::from_rgba_unmultiplied(16, 58, 64, 230),
+            );
+        } else if chip.hovered() {
+            ui.painter().rect_filled(
+                resume_rect,
+                Radii::CONTROL,
                 Color32::from_rgba_unmultiplied(30, 80, 86, 220),
             );
         }
+        focus_ring(ui, &chip, resume_rect.shrink(1.0), Radii::CONTROL);
         chip.on_hover_cursor(CursorIcon::PointingHand);
     }
 
@@ -496,13 +520,13 @@ fn paint_banner_background(ui: &Ui, rect: Rect, hovered: bool) {
     if hovered {
         painter.rect_filled(
             rect,
-            CornerRadius::same(8),
+            Radii::LARGE_CARD,
             Color32::from_rgba_unmultiplied(255, 255, 255, 16),
         );
     }
     painter.rect_stroke(
         rect,
-        CornerRadius::same(8),
+        Radii::LARGE_CARD,
         Stroke::new(1.0, Color32::from_rgba_unmultiplied(7, 30, 34, 60)),
         StrokeKind::Inside,
     );
@@ -607,14 +631,14 @@ fn feature_card(
         Frame::new()
             .fill(fill)
             .stroke(Stroke::new(1.0, border))
-            .corner_radius(CornerRadius::same(8))
+            .corner_radius(Radii::CARD)
             .inner_margin(Margin::same(13))
             .show(ui, |ui| {
                 ui.set_min_size(vec2((width - 26.0).max(60.0), height - 26.0));
                 let (icon_rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
                 ui.painter().rect_filled(
                     icon_rect,
-                    CornerRadius::same(7),
+                    Radii::CONTROL,
                     if featured {
                         Color32::from_rgba_unmultiplied(255, 255, 255, 24)
                     } else {
@@ -698,13 +722,13 @@ fn creative_suite(ui: &mut Ui) {
 
 fn paint_suite_card(ui: &Ui, rect: Rect, title: &str, from: Color32, to: Color32, index: usize) {
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::same(8), from);
+    painter.rect_filled(rect, Radii::LARGE_CARD, from);
     painter.rect_filled(
         Rect::from_min_size(
             pos2(rect.left(), rect.bottom() - 46.0),
             vec2(rect.width(), 46.0),
         ),
-        CornerRadius::same(8),
+        Radii::LARGE_CARD,
         Color32::from_rgba_unmultiplied(8, 16, 18, 190),
     );
     painter.circle_filled(
@@ -743,7 +767,7 @@ fn paint_suite_card(ui: &Ui, rect: Rect, title: &str, from: Color32, to: Color32
     );
     painter.rect_stroke(
         rect,
-        CornerRadius::same(8),
+        Radii::LARGE_CARD,
         Stroke::new(1.0, Palette::HOME_BORDER),
         StrokeKind::Inside,
     );
@@ -777,7 +801,7 @@ fn projects_section(ui: &mut Ui, state: &mut AppState) {
     Frame::new()
         .fill(Palette::HOME_CARD)
         .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
-        .corner_radius(CornerRadius::same(9))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(22))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -822,14 +846,14 @@ fn current_session_card(ui: &mut Ui, state: &mut AppState, project_name: &str) {
     Frame::new()
         .fill(Palette::HOME_CARD)
         .stroke(Stroke::new(1.0, Palette::ACCENT_DIM))
-        .corner_radius(CornerRadius::same(8))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(12))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
                 ui.painter()
-                    .rect_filled(icon_rect, CornerRadius::same(6), Palette::ACCENT_BG);
+                    .rect_filled(icon_rect, Radii::CONTROL, Palette::ACCENT_BG);
                 icons::paint(
                     ui.painter(),
                     icon_rect.shrink(8.0),
@@ -900,7 +924,7 @@ fn projects_content(ui: &mut Ui, state: &mut AppState) {
     Frame::new()
         .fill(Palette::HOME_CARD)
         .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
-        .corner_radius(CornerRadius::same(9))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(24))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -978,7 +1002,7 @@ fn settings_card(ui: &mut Ui, title: &str, rows: &[(&str, &str)], note: &str) {
     Frame::new()
         .fill(Palette::HOME_CARD)
         .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
-        .corner_radius(CornerRadius::same(8))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(14))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());

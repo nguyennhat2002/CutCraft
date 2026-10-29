@@ -7,8 +7,9 @@ use egui::{
 
 use crate::config;
 use crate::editor_state::{EditorSession, PreviewAspect};
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::timecode::format_timecode;
+use crate::widgets::common::{focus_ring, focus_ring_colored};
 
 const HEADER_HEIGHT: f32 = config::EDITOR_COLUMN_HEADER_HEIGHT;
 const FOOTER_HEIGHT: f32 = 40.0;
@@ -49,7 +50,7 @@ fn header(ui: &mut Ui, session: &mut EditorSession) {
             pos2(player.center().x - 16.0, player.bottom() - 2.0),
             vec2(32.0, 2.0),
         ),
-        CornerRadius::same(1),
+        CornerRadius::ZERO,
         Palette::ACCENT,
     );
 
@@ -76,8 +77,10 @@ fn header(ui: &mut Ui, session: &mut EditorSession) {
     let hovered = response.hovered();
     ui.painter().rect_filled(
         chip,
-        CornerRadius::same(4),
-        if hovered {
+        Radii::CONTROL,
+        if response.is_pointer_button_down_on() {
+            Palette::WIDGET_ACTIVE
+        } else if hovered {
             Palette::WIDGET_HOVER
         } else {
             Palette::WIDGET_BG
@@ -85,10 +88,18 @@ fn header(ui: &mut Ui, session: &mut EditorSession) {
     );
     ui.painter().rect_stroke(
         chip,
-        CornerRadius::same(4),
-        Stroke::new(1.0, Palette::BORDER_SUBTLE),
+        Radii::CONTROL,
+        Stroke::new(
+            1.0,
+            if hovered {
+                Palette::BORDER
+            } else {
+                Palette::BORDER_SUBTLE
+            },
+        ),
         StrokeKind::Inside,
     );
+    focus_ring(ui, &response, chip.shrink(1.0), Radii::CONTROL);
     ui.painter().text(
         pos2(chip.left() + 9.0, chip.center().y),
         Align2::LEFT_CENTER,
@@ -132,10 +143,10 @@ fn paint_monitor(ui: &Ui, area: Rect, session: &EditorSession) {
         return;
     }
 
-    painter.rect_filled(canvas, CornerRadius::same(2), Palette::CANVAS);
+    painter.rect_filled(canvas, Radii::SMALL, Palette::CANVAS);
     painter.rect_stroke(
         canvas,
-        CornerRadius::same(2),
+        Radii::SMALL,
         Stroke::new(1.0, Palette::BORDER_SUBTLE),
         StrokeKind::Inside,
     );
@@ -187,7 +198,7 @@ fn footer(ui: &mut Ui) {
     Frame::new()
         .fill(Palette::PANEL_BG)
         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(4))
+        .corner_radius(Radii::CONTROL)
         .inner_margin(Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -327,7 +338,9 @@ fn transport_button(ui: &mut Ui, glyph: TransportGlyph, primary: bool) -> Respon
         )
     } else {
         (
-            if hovered {
+            if response.is_pointer_button_down_on() {
+                Palette::WIDGET_ACTIVE
+            } else if hovered {
                 Palette::WIDGET_HOVER
             } else {
                 Palette::WIDGET_BG
@@ -341,16 +354,27 @@ fn transport_button(ui: &mut Ui, glyph: TransportGlyph, primary: bool) -> Respon
     };
 
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::same(3), fill);
+    painter.rect_filled(rect, Radii::CONTROL, fill);
     if !primary {
         painter.rect_stroke(
             rect,
-            CornerRadius::same(3),
+            Radii::CONTROL,
             Stroke::new(1.0, Palette::BORDER_SUBTLE),
             StrokeKind::Inside,
         );
     }
     paint_transport_glyph(&painter, glyph, rect.center(), color);
+    if primary {
+        focus_ring_colored(
+            ui,
+            &response,
+            rect.shrink(1.0),
+            Radii::CONTROL,
+            Palette::ON_ACCENT,
+        );
+    } else {
+        focus_ring(ui, &response, rect.shrink(1.0), Radii::CONTROL);
+    }
 
     response
         .on_hover_cursor(CursorIcon::NotAllowed)
