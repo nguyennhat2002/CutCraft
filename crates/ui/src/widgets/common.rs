@@ -6,7 +6,7 @@ use egui::{
 };
 
 use crate::theme::{Palette, Radii};
-use crate::widgets::icons::{self, Icon};
+use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
 /// Uppercase muted section label used at the top of each panel.
 pub fn section_heading(ui: &mut Ui, text: &str) -> Response {
@@ -92,8 +92,14 @@ pub fn compact_empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str) {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.vertical_centered(|ui| {
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
-                icons::paint(ui.painter(), icon_rect, icon, Palette::TEXT_DISABLED);
+                let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                icons::paint_sized(
+                    ui.painter(),
+                    icon_rect,
+                    icon,
+                    IconSize::EmptyState,
+                    IconColors::MUTED,
+                );
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new(title)
@@ -118,17 +124,20 @@ pub fn disabled_icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response 
         ui.painter()
             .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_BG);
     }
-    icons::paint(
+    icons::paint_sized(
         ui.painter(),
-        rect.shrink(5.0),
+        rect,
         icon,
+        IconSize::Standard,
         if hovered {
-            Palette::TEXT_MUTED
+            IconColors::MUTED
         } else {
-            Palette::TEXT_DISABLED
+            IconColors::DISABLED
         },
     );
 
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::accesskit::Role::Button, false, tooltip));
     response
         .on_hover_cursor(CursorIcon::NotAllowed)
         .on_hover_text(tooltip)
@@ -146,17 +155,20 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
             .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_BG);
     }
     focus_ring(ui, &response, rect, Radii::CONTROL);
-    icons::paint(
+    icons::paint_sized(
         ui.painter(),
-        rect.shrink(6.0),
+        rect,
         icon,
+        IconSize::Standard,
         if hovered {
-            Palette::TEXT_PRIMARY
+            IconColors::HOVERED
         } else {
-            Palette::TEXT_MUTED
+            IconColors::NORMAL
         },
     );
 
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::accesskit::Role::Button, true, tooltip));
     response
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text(tooltip)

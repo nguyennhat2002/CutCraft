@@ -12,6 +12,7 @@ pub mod media_pool;
 pub mod menu_bar;
 pub(crate) mod panel;
 pub mod preview;
+pub mod shortcuts_dialog;
 pub mod status_bar;
 pub mod timeline;
 pub mod toolbar;

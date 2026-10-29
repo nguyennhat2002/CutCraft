@@ -8,10 +8,11 @@ use egui::{
 
 use crate::config;
 use crate::editor_state::EditorSession;
+use crate::shortcuts::{CommandId, ShortcutManager};
 use crate::theme::{Palette, Radii};
 use crate::widgets::common;
 use crate::widgets::common::focus_ring;
-use crate::widgets::icons::{self, Icon};
+use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 use crate::widgets::menu_bar;
 
 /// Result of interacting with the editor top bar.
@@ -21,9 +22,10 @@ pub enum TopBarAction {
     None,
     Home,
     Export,
+    Shortcuts,
 }
 
-pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
+pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManager) -> TopBarAction {
     let mut action = TopBarAction::None;
 
     Panel::top("editor_top_bar")
@@ -70,30 +72,86 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) -> TopBarAction {
                 );
 
                 ui.add_space(4.0);
-                if menu_bar::show_menus(ui, session) {
+                if menu_bar::show_menus(ui, session, shortcuts) {
                     action = TopBarAction::Home;
                 }
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if common::primary_button(ui, "Export", 70.0).clicked() {
+                    let export_shortcut = shortcuts.shortcut_hint(CommandId::Export);
+                    let export = common::primary_button(ui, "Export", 70.0);
+                    if export.clicked() {
                         action = TopBarAction::Export;
                     }
+                    let _ = export.on_hover_text(match export_shortcut {
+                        Some(shortcut) => format!("Open export settings ({shortcut})"),
+                        None => "Open export settings".to_owned(),
+                    });
                     ui.add_space(6.0);
-                    let _ = common::disabled_icon_button(
-                        ui,
-                        Icon::Redo,
-                        "Redo history requires editor commands and is not implemented.",
-                    );
-                    let _ = common::disabled_icon_button(
-                        ui,
-                        Icon::Undo,
-                        "Undo history requires editor commands and is not implemented.",
-                    );
+                    if shortcuts_button(ui, shortcuts.shortcut_hint(CommandId::ShortcutsDialog))
+                        .clicked()
+                    {
+                        action = TopBarAction::Shortcuts;
+                    }
+                    ui.add_space(2.0);
+                    let redo_shortcut = shortcuts.shortcut_hint(CommandId::Redo);
+                    let redo_hint = match redo_shortcut {
+                        Some(shortcut) => format!(
+                            "Redo history requires editor commands and is not implemented. ({shortcut})"
+                        ),
+                        None => {
+                            "Redo history requires editor commands and is not implemented.".to_owned()
+                        }
+                    };
+                    let _ = common::disabled_icon_button(ui, Icon::Redo, &redo_hint);
+                    let undo_shortcut = shortcuts.shortcut_hint(CommandId::Undo);
+                    let undo_hint = match undo_shortcut {
+                        Some(shortcut) => format!(
+                            "Undo history requires editor commands and is not implemented. ({shortcut})"
+                        ),
+                        None => {
+                            "Undo history requires editor commands and is not implemented.".to_owned()
+                        }
+                    };
+                    let _ = common::disabled_icon_button(ui, Icon::Undo, &undo_hint);
                 });
             });
         });
 
     action
+}
+
+fn shortcuts_button(ui: &mut Ui, shortcut: Option<String>) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+    let hovered = response.hovered();
+    if response.is_pointer_button_down_on() {
+        ui.painter()
+            .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_ACTIVE);
+    } else if hovered {
+        ui.painter()
+            .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_BG);
+    }
+    focus_ring(ui, &response, rect.shrink(1.0), Radii::CONTROL);
+    icons::paint_sized(
+        ui.painter(),
+        rect,
+        Icon::Keyboard,
+        IconSize::Standard,
+        if hovered {
+            IconColors::HOVERED
+        } else {
+            IconColors::MUTED
+        },
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::accesskit::Role::Button, true, "Keyboard Shortcuts")
+    });
+    let tooltip = match shortcut {
+        Some(shortcut) => format!("Keyboard Shortcuts\n{shortcut}"),
+        None => "Keyboard Shortcuts".to_owned(),
+    };
+    response
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(tooltip)
 }
 
 fn home_button(ui: &mut Ui) -> Response {
@@ -109,15 +167,16 @@ fn home_button(ui: &mut Ui) -> Response {
     focus_ring(ui, &response, rect.shrink(1.0), Radii::CONTROL);
 
     let icon_rect =
-        Rect::from_center_size(pos2(rect.left() + 12.0, rect.center().y), vec2(13.0, 13.0));
-    icons::paint(
+        Rect::from_center_size(pos2(rect.left() + 13.0, rect.center().y), vec2(20.0, 20.0));
+    icons::paint_sized(
         ui.painter(),
         icon_rect,
         Icon::Home,
+        IconSize::Navigation,
         if hovered {
-            Palette::TEXT_PRIMARY
+            IconColors::HOVERED
         } else {
-            Palette::TEXT_SECONDARY
+            IconColors::MUTED
         },
     );
     ui.painter().text(

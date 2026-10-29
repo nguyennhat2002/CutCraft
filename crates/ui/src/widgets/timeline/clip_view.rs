@@ -8,6 +8,12 @@ use crate::timeline_state::{TimelineItemView, TrackKind};
 
 use super::scale::TimelineScale;
 
+pub(super) fn rect(row: Rect, scale: &TimelineScale, item: &TimelineItemView) -> Rect {
+    let x0 = row.left() + scale.x_for_seconds(item.start_seconds());
+    let x1 = row.left() + scale.x_for_seconds(item.end_seconds());
+    Rect::from_min_max(pos2(x0, row.top() + 4.0), pos2(x1, row.bottom() - 4.0))
+}
+
 pub(super) fn paint(
     painter: &Painter,
     row: Rect,
@@ -15,10 +21,9 @@ pub(super) fn paint(
     item: &TimelineItemView,
     kind: TrackKind,
     demo: bool,
+    selected: bool,
 ) {
-    let x0 = row.left() + scale.x_for_seconds(item.start_seconds());
-    let x1 = row.left() + scale.x_for_seconds(item.end_seconds());
-    let clip_rect = Rect::from_min_max(pos2(x0, row.top() + 4.0), pos2(x1, row.bottom() - 4.0));
+    let clip_rect = rect(row, scale, item);
     if clip_rect.width() < 2.0 || !painter.clip_rect().intersects(clip_rect) {
         return;
     }
@@ -34,18 +39,23 @@ pub(super) fn paint(
             Palette::ACCENT_LIGHT,
         ),
     };
+    let border_color = if selected {
+        Palette::TEXT_PRIMARY
+    } else {
+        border
+    };
     let painter = painter.with_clip_rect(clip_rect.intersect(painter.clip_rect()));
     painter.rect_filled(clip_rect, Radii::SMALL, fill);
     painter.rect_stroke(
         clip_rect,
         Radii::SMALL,
-        Stroke::new(1.0, border),
+        Stroke::new(if selected { 1.5 } else { 1.0 }, border_color),
         StrokeKind::Inside,
     );
     painter.rect_filled(
         Rect::from_min_size(clip_rect.min, vec2(clip_rect.width(), 2.0)),
         CornerRadius::ZERO,
-        border,
+        border_color,
     );
     if clip_rect.width() > 42.0 {
         painter.text(

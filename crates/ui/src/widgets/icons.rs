@@ -1,18 +1,63 @@
-//! Small original vector icons drawn with egui primitives.
+//! Centralized Lucide icon registry for the CutCraft shell.
 //!
-//! These are simple geometric marks for the CutCraft shell. No third-party
-//! icon font or artwork is embedded. Corner radii inside this module describe
-//! glyph geometry and are deliberately independent of the shell `Radii` scale.
+//! Icons are bundled from Lucide 1.61.0 through `egui-lucide`. Rendering goes
+//! through egui's cached SVG texture loader at the exact device-pixel size, so
+//! there is no runtime download and no per-frame SVG decoding.
 
 use egui::{
-    pos2, vec2, Align2, Color32, CornerRadius, FontId, Painter, Rect, Shape, Stroke, StrokeKind,
+    load::{SizeHint, TexturePoll},
+    pos2, Color32, Painter, Rect, TextureOptions, Vec2,
 };
+use egui_lucide::Lucide;
 
+use crate::theme::Palette;
+
+/// Lucide's optical stroke width chosen for CutCraft's compact desktop chrome.
+pub(crate) const STROKE_WIDTH: f32 = 1.75;
+
+/// Shared optical sizes for icons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IconSize {
+    /// Compact metadata, chevrons, and dense inline controls.
+    Small,
+    /// Standard editor controls and toolbar buttons.
+    Standard,
+    /// Sidebar and top-level navigation.
+    Navigation,
+    /// Invitation and empty-state illustrations.
+    EmptyState,
+}
+
+impl IconSize {
+    pub(crate) const fn points(self) -> f32 {
+        match self {
+            Self::Small => 16.0,
+            Self::Standard => 18.0,
+            Self::Navigation => 20.0,
+            Self::EmptyState => 32.0,
+        }
+    }
+}
+
+/// Shared icon color roles.
+pub(crate) struct IconColors;
+
+impl IconColors {
+    pub(crate) const NORMAL: Color32 = Palette::TEXT_PRIMARY;
+    pub(crate) const MUTED: Color32 = Palette::TEXT_MUTED;
+    pub(crate) const HOVERED: Color32 = Palette::ACCENT_LIGHT;
+    pub(crate) const SELECTED: Color32 = Palette::ACCENT;
+    pub(crate) const DISABLED: Color32 = Palette::TEXT_DISABLED;
+    pub(crate) const ON_ACCENT: Color32 = Palette::ON_ACCENT;
+}
+
+/// Semantic icon identifiers used by the CutCraft UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Icon {
     Home,
     Projects,
     Settings,
+    Spaces,
     Media,
     Audio,
     Text,
@@ -37,553 +82,265 @@ pub(crate) enum Icon {
     Delete,
     Snap,
     Link,
+    Menu,
+    Crop,
+    Fullscreen,
+    TrimIn,
+    TrimOut,
+    Freeze,
+    Reverse,
+    DetachAudio,
+    Voiceover,
+    Adjust,
+    More,
+    ZoomIn,
+    ZoomOut,
+    Fit,
+    Play,
+    CirclePlay,
+    ChevronDown,
+    Bold,
+    Italic,
+    Underline,
+    AlignLeft,
+    AlignCenter,
+    AlignRight,
+    AlignJustify,
+    Keyboard,
 }
 
-pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
-    let stroke = Stroke::new(1.5, color);
-    let thin = Stroke::new(1.2, color);
-    let area = rect.shrink(2.0);
+impl Icon {
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 53] = [
+        Self::Home,
+        Self::Projects,
+        Self::Settings,
+        Self::Spaces,
+        Self::Media,
+        Self::Audio,
+        Self::Text,
+        Self::Stickers,
+        Self::Effects,
+        Self::Transitions,
+        Self::Captions,
+        Self::Filters,
+        Self::Folder,
+        Self::Export,
+        Self::Close,
+        Self::Eye,
+        Self::Lock,
+        Self::Volume,
+        Self::Undo,
+        Self::Redo,
+        Self::Grid,
+        Self::List,
+        Self::Plus,
+        Self::Select,
+        Self::Split,
+        Self::Delete,
+        Self::Snap,
+        Self::Link,
+        Self::Menu,
+        Self::Crop,
+        Self::Fullscreen,
+        Self::TrimIn,
+        Self::TrimOut,
+        Self::Freeze,
+        Self::Reverse,
+        Self::DetachAudio,
+        Self::Voiceover,
+        Self::Adjust,
+        Self::More,
+        Self::ZoomIn,
+        Self::ZoomOut,
+        Self::Fit,
+        Self::Play,
+        Self::CirclePlay,
+        Self::ChevronDown,
+        Self::Bold,
+        Self::Italic,
+        Self::Underline,
+        Self::AlignLeft,
+        Self::AlignCenter,
+        Self::AlignRight,
+        Self::AlignJustify,
+        Self::Keyboard,
+    ];
 
-    match icon {
-        Icon::Home => {
-            let left = area.left();
-            let right = area.right();
-            let bottom = area.bottom();
-            let mid_y = area.top() + area.height() * 0.42;
-            let apex = pos2(area.center().x, area.top());
-            painter.line_segment([pos2(left, mid_y), apex], stroke);
-            painter.line_segment([apex, pos2(right, mid_y)], stroke);
-            painter.line_segment([pos2(left, mid_y), pos2(left, bottom)], stroke);
-            painter.line_segment([pos2(right, mid_y), pos2(right, bottom)], stroke);
-            painter.line_segment([pos2(left, bottom), pos2(right, bottom)], stroke);
-            let door = Rect::from_min_max(
-                pos2(
-                    area.center().x - area.width() * 0.14,
-                    bottom - area.height() * 0.28,
-                ),
-                pos2(area.center().x + area.width() * 0.14, bottom),
-            );
-            painter.rect_stroke(door, CornerRadius::same(1), thin, StrokeKind::Inside);
+    pub(crate) const fn lucide(self) -> Lucide {
+        match self {
+            Self::Home => Lucide::House,
+            Self::Projects | Self::Folder => Lucide::Folder,
+            Self::Settings => Lucide::Settings,
+            Self::Spaces => Lucide::Users,
+            Self::Media => Lucide::Clapperboard,
+            Self::Audio => Lucide::AudioLines,
+            Self::Text => Lucide::Type,
+            Self::Stickers => Lucide::Sticker,
+            Self::Effects => Lucide::Sparkles,
+            Self::Transitions => Lucide::Repeat2,
+            Self::Captions => Lucide::Captions,
+            Self::Filters => Lucide::Blend,
+            Self::Export => Lucide::Upload,
+            Self::Close => Lucide::X,
+            Self::Eye => Lucide::Eye,
+            Self::Lock => Lucide::Lock,
+            Self::Volume => Lucide::Volume2,
+            Self::Undo => Lucide::Undo2,
+            Self::Redo => Lucide::Redo2,
+            Self::Grid => Lucide::Grid2x2,
+            Self::List => Lucide::List,
+            Self::Plus => Lucide::Plus,
+            Self::Select => Lucide::MousePointer2,
+            Self::Split => Lucide::Scissors,
+            Self::Delete => Lucide::Trash,
+            Self::Snap => Lucide::Magnet,
+            Self::Link => Lucide::Link2,
+            Self::Menu => Lucide::Menu,
+            Self::Crop => Lucide::Crop,
+            Self::Fullscreen => Lucide::Fullscreen,
+            Self::TrimIn => Lucide::PanelLeft,
+            Self::TrimOut => Lucide::PanelRight,
+            Self::Freeze => Lucide::Snowflake,
+            Self::Reverse => Lucide::RotateCcw,
+            Self::DetachAudio => Lucide::AudioWaveform,
+            Self::Voiceover => Lucide::Mic,
+            Self::Adjust => Lucide::SlidersHorizontal,
+            Self::More => Lucide::Ellipsis,
+            Self::ZoomIn => Lucide::ZoomIn,
+            Self::ZoomOut => Lucide::ZoomOut,
+            Self::Fit => Lucide::Scan,
+            Self::Play => Lucide::Play,
+            Self::CirclePlay => Lucide::CirclePlay,
+            Self::ChevronDown => Lucide::ChevronDown,
+            Self::Bold => Lucide::Bold,
+            Self::Italic => Lucide::Italic,
+            Self::Underline => Lucide::Underline,
+            Self::AlignLeft => Lucide::TextAlignStart,
+            Self::AlignCenter => Lucide::TextAlignCenter,
+            Self::AlignRight => Lucide::TextAlignEnd,
+            Self::AlignJustify => Lucide::TextAlignJustify,
+            Self::Keyboard => Lucide::Keyboard,
         }
-        Icon::Projects | Icon::Folder => {
-            let tab = Rect::from_min_max(
-                pos2(area.left(), area.top() + area.height() * 0.12),
-                pos2(
-                    area.left() + area.width() * 0.46,
-                    area.top() + area.height() * 0.34,
-                ),
-            );
-            let body = Rect::from_min_max(
-                pos2(area.left(), area.top() + area.height() * 0.25),
-                area.right_bottom(),
-            );
-            painter.rect_stroke(body, CornerRadius::same(2), stroke, StrokeKind::Inside);
-            painter.rect_stroke(tab, CornerRadius::same(1), thin, StrokeKind::Inside);
+    }
+
+    /// Paint a square icon centered in `rect` at the requested optical size.
+    pub(crate) fn paint_sized(self, painter: &Painter, rect: Rect, size: IconSize, color: Color32) {
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return;
         }
-        Icon::Settings => {
-            for (index, fraction) in [0.26_f32, 0.5, 0.74].into_iter().enumerate() {
-                let y = area.top() + area.height() * fraction;
-                painter.line_segment([pos2(area.left(), y), pos2(area.right(), y)], thin);
-                let knob_x = area.left() + area.width() * [0.68_f32, 0.34, 0.56][index];
-                painter.circle_filled(pos2(knob_x, y), 2.2, color);
-            }
-        }
-        Icon::Media => {
-            let body =
-                Rect::from_center_size(area.center(), vec2(area.width(), area.height() * 0.72));
-            painter.rect_stroke(body, CornerRadius::same(2), stroke, StrokeKind::Inside);
-            for index in 0..3 {
-                let x = body.left() + body.width() * (0.2 + index as f32 * 0.3);
-                for y in [body.top() + 3.0, body.bottom() - 3.0] {
-                    painter.rect_filled(
-                        Rect::from_center_size(pos2(x, y), vec2(3.0, 1.6)),
-                        CornerRadius::same(1),
-                        color,
-                    );
-                }
-            }
-            let center = body.center();
-            painter.add(Shape::convex_polygon(
-                vec![
-                    pos2(center.x - 2.0, center.y - 3.0),
-                    pos2(center.x - 2.0, center.y + 3.0),
-                    pos2(center.x + 3.5, center.y),
-                ],
-                color,
-                Stroke::NONE,
-            ));
-        }
-        Icon::Audio => {
-            let bars = [0.38_f32, 0.66, 0.92, 0.58, 0.3];
-            for (index, height) in bars.into_iter().enumerate() {
-                let x = area.left() + area.width() * (0.16 + index as f32 * 0.17);
-                let half = area.height() * height * 0.5;
-                painter.line_segment(
-                    [
-                        pos2(x, area.center().y - half),
-                        pos2(x, area.center().y + half),
-                    ],
-                    Stroke::new(2.0, color),
+        let points = size.points();
+        let square = Rect::from_center_size(rect.center(), Vec2::splat(points));
+        let pixels = raster_pixels(points, painter.ctx().pixels_per_point());
+        let source = self
+            .lucide()
+            .size(points)
+            .stroke_width(STROKE_WIDTH)
+            .color(color)
+            .source();
+        let size_hint = SizeHint::Size {
+            width: pixels,
+            height: pixels,
+            maintain_aspect_ratio: true,
+        };
+        match source.load(painter.ctx(), TextureOptions::LINEAR, size_hint) {
+            Ok(TexturePoll::Ready { texture }) => {
+                painter.image(
+                    texture.id,
+                    square,
+                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                    Color32::WHITE,
                 );
             }
-        }
-        Icon::Text => {
-            painter.text(
-                area.center(),
-                Align2::CENTER_CENTER,
-                "T",
-                FontId::proportional(area.height() * 0.9),
-                color,
-            );
-        }
-        Icon::Stickers => {
-            painter.rect_stroke(area, CornerRadius::same(4), stroke, StrokeKind::Inside);
-            for x in [0.34_f32, 0.66] {
-                painter.circle_filled(
-                    pos2(
-                        area.left() + area.width() * x,
-                        area.top() + area.height() * 0.4,
-                    ),
-                    1.5,
-                    color,
-                );
+            Ok(TexturePoll::Pending { .. }) => {
+                painter.ctx().request_repaint();
             }
-            let smile_y = area.top() + area.height() * 0.58;
-            painter.line_segment(
-                [
-                    pos2(area.left() + area.width() * 0.32, smile_y),
-                    pos2(
-                        area.left() + area.width() * 0.5,
-                        area.bottom() - area.height() * 0.24,
-                    ),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(
-                        area.left() + area.width() * 0.5,
-                        area.bottom() - area.height() * 0.24,
-                    ),
-                    pos2(area.left() + area.width() * 0.68, smile_y),
-                ],
-                thin,
-            );
-        }
-        Icon::Effects => {
-            let center = area.center();
-            let long = area.height() * 0.46;
-            let short = area.height() * 0.16;
-            painter.line_segment(
-                [
-                    pos2(center.x, center.y - long),
-                    pos2(center.x, center.y + long),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(center.x - long, center.y),
-                    pos2(center.x + long, center.y),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(center.x - short, center.y - short),
-                    pos2(center.x + short, center.y + short),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(center.x + short, center.y - short),
-                    pos2(center.x - short, center.y + short),
-                ],
-                thin,
-            );
-        }
-        Icon::Transitions => {
-            let half_width = area.width() * 0.36;
-            painter.add(Shape::convex_polygon(
-                vec![
-                    pos2(area.left(), area.top()),
-                    pos2(area.left() + half_width, area.center().y),
-                    pos2(area.left(), area.bottom()),
-                ],
-                Color32::TRANSPARENT,
-                stroke,
-            ));
-            painter.add(Shape::convex_polygon(
-                vec![
-                    pos2(area.right(), area.top()),
-                    pos2(area.right() - half_width, area.center().y),
-                    pos2(area.right(), area.bottom()),
-                ],
-                Color32::TRANSPARENT,
-                stroke,
-            ));
-        }
-        Icon::Captions => {
-            painter.rect_stroke(area, CornerRadius::same(2), stroke, StrokeKind::Inside);
-            for y in [0.38_f32, 0.58] {
-                painter.line_segment(
-                    [
-                        pos2(
-                            area.left() + area.width() * 0.18,
-                            area.top() + area.height() * y,
-                        ),
-                        pos2(
-                            area.right() - area.width() * 0.18,
-                            area.top() + area.height() * y,
-                        ),
-                    ],
-                    thin,
-                );
-            }
-        }
-        Icon::Filters => {
-            for x in [0.3_f32, 0.5, 0.7] {
-                painter.circle_stroke(
-                    pos2(area.left() + area.width() * x, area.center().y),
-                    area.height() * 0.24,
-                    stroke,
-                );
-            }
-        }
-        Icon::Export => {
-            let top = area.top() + area.height() * 0.12;
-            let bottom = area.bottom() - area.height() * 0.05;
-            let center_x = area.center().x;
-            painter.line_segment(
-                [
-                    pos2(center_x, top),
-                    pos2(center_x, bottom - area.height() * 0.28),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(center_x, top),
-                    pos2(center_x - area.width() * 0.18, top + area.height() * 0.22),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(center_x, top),
-                    pos2(center_x + area.width() * 0.18, top + area.height() * 0.22),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(area.left(), bottom - area.height() * 0.28),
-                    pos2(area.left(), bottom),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(area.right(), bottom - area.height() * 0.28),
-                    pos2(area.right(), bottom),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [pos2(area.left(), bottom), pos2(area.right(), bottom)],
-                stroke,
-            );
-        }
-        Icon::Close => {
-            painter.line_segment([area.left_top(), area.right_bottom()], stroke);
-            painter.line_segment([area.right_top(), area.left_bottom()], stroke);
-        }
-        Icon::Eye => {
-            painter.line_segment(
-                [
-                    pos2(area.left(), area.center().y),
-                    pos2(area.center().x, area.top() + area.height() * 0.24),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(area.center().x, area.top() + area.height() * 0.24),
-                    pos2(area.right(), area.center().y),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(area.right(), area.center().y),
-                    pos2(area.center().x, area.bottom() - area.height() * 0.24),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(area.center().x, area.bottom() - area.height() * 0.24),
-                    pos2(area.left(), area.center().y),
-                ],
-                thin,
-            );
-            painter.circle_filled(area.center(), area.height() * 0.13, color);
-        }
-        Icon::Lock => {
-            let body = Rect::from_min_max(
-                pos2(
-                    area.left() + area.width() * 0.18,
-                    area.top() + area.height() * 0.44,
-                ),
-                area.right_bottom(),
-            );
-            painter.rect_stroke(body, CornerRadius::same(2), thin, StrokeKind::Inside);
-            let shackle_left = area.left() + area.width() * 0.3;
-            let shackle_right = area.right() - area.width() * 0.3;
-            let shackle_top = area.top() + area.height() * 0.16;
-            painter.line_segment(
-                [
-                    pos2(shackle_left, body.top()),
-                    pos2(shackle_left, shackle_top),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(shackle_left, shackle_top),
-                    pos2(shackle_right, shackle_top),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(shackle_right, shackle_top),
-                    pos2(shackle_right, body.top()),
-                ],
-                thin,
-            );
-        }
-        Icon::Volume => {
-            let speaker = vec![
-                pos2(area.left(), area.center().y - area.height() * 0.16),
-                pos2(
-                    area.left() + area.width() * 0.28,
-                    area.center().y - area.height() * 0.16,
-                ),
-                pos2(
-                    area.left() + area.width() * 0.52,
-                    area.center().y - area.height() * 0.36,
-                ),
-                pos2(
-                    area.left() + area.width() * 0.52,
-                    area.center().y + area.height() * 0.36,
-                ),
-                pos2(
-                    area.left() + area.width() * 0.28,
-                    area.center().y + area.height() * 0.16,
-                ),
-                pos2(area.left(), area.center().y + area.height() * 0.16),
-            ];
-            painter.add(Shape::convex_polygon(speaker, Color32::TRANSPARENT, thin));
-            painter.line_segment(
-                [
-                    pos2(
-                        area.left() + area.width() * 0.65,
-                        area.center().y - area.height() * 0.22,
-                    ),
-                    pos2(area.left() + area.width() * 0.8, area.center().y),
-                ],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(area.left() + area.width() * 0.8, area.center().y),
-                    pos2(
-                        area.left() + area.width() * 0.65,
-                        area.center().y + area.height() * 0.22,
-                    ),
-                ],
-                thin,
-            );
-        }
-        Icon::Undo | Icon::Redo => {
-            let left = area.left() + area.width() * 0.16;
-            let right = area.right() - area.width() * 0.16;
-            let y = area.center().y + area.height() * 0.12;
-            painter.line_segment([pos2(left, y), pos2(right, y)], stroke);
-            let tip_x = if icon == Icon::Undo { left } else { right };
-            let direction = if icon == Icon::Undo { 1.0 } else { -1.0 };
-            painter.line_segment(
-                [
-                    pos2(tip_x, y),
-                    pos2(
-                        tip_x + direction * area.width() * 0.22,
-                        y - area.height() * 0.22,
-                    ),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    pos2(tip_x, y),
-                    pos2(
-                        tip_x + direction * area.width() * 0.22,
-                        y + area.height() * 0.22,
-                    ),
-                ],
-                stroke,
-            );
-        }
-        Icon::Plus => {
-            painter.line_segment([area.center_top(), area.center_bottom()], stroke);
-            painter.line_segment([area.left_center(), area.right_center()], stroke);
-        }
-        Icon::Select => {
-            painter.add(Shape::closed_line(
-                vec![
-                    area.left_top(),
-                    pos2(area.left() + area.width() * 0.2, area.bottom()),
-                    area.center(),
-                    pos2(area.right(), area.center().y - area.height() * 0.1),
-                ],
-                thin,
-            ));
-        }
-        Icon::Split => {
-            for x in [area.left(), area.right()] {
-                let direction = if x == area.left() { 1.0 } else { -1.0 };
-                painter.line_segment([pos2(x, area.top()), pos2(x, area.bottom())], thin);
-                for y in [area.top(), area.bottom()] {
-                    painter.line_segment([pos2(x, y), pos2(x + direction * 3.0, y)], thin);
-                }
-            }
-            painter.line_segment([area.center_top(), area.center_bottom()], thin);
-        }
-        Icon::Delete => {
-            let bin = Rect::from_min_max(
-                pos2(area.left() + 2.0, area.top() + 3.0),
-                pos2(area.right() - 2.0, area.bottom()),
-            );
-            painter.rect_stroke(bin, CornerRadius::same(1), thin, StrokeKind::Inside);
-            painter.line_segment(
-                [pos2(area.left(), bin.top()), pos2(area.right(), bin.top())],
-                thin,
-            );
-            painter.line_segment(
-                [
-                    pos2(area.center().x - 2.0, area.top()),
-                    pos2(area.center().x + 2.0, area.top()),
-                ],
-                thin,
-            );
-        }
-        Icon::Snap => {
-            let left = pos2(area.left(), area.top());
-            let right = pos2(area.right(), area.top());
-            painter.add(Shape::line(
-                vec![left, area.left_bottom(), area.right_bottom(), right],
-                stroke,
-            ));
-            for x in [area.left(), area.right()] {
-                painter.line_segment(
-                    [
-                        pos2(x - 2.0, area.top() + 3.0),
-                        pos2(x + 2.0, area.top() + 3.0),
-                    ],
-                    thin,
-                );
-            }
-        }
-        Icon::Link => {
-            for x in [area.left(), area.center().x - 1.0] {
-                painter.rect_stroke(
-                    Rect::from_min_size(
-                        pos2(x, area.center().y - 3.0),
-                        vec2(area.width() * 0.55, 6.0),
-                    ),
-                    CornerRadius::same(2),
-                    thin,
-                    StrokeKind::Inside,
-                );
-            }
-        }
-        Icon::Grid => {
-            let gap = area.width() * 0.12;
-            let cell = (area.width() - gap) * 0.5;
-            for (x, y) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
-                let min = pos2(
-                    area.left() + x * (cell + gap),
-                    area.top() + y * (cell + gap),
-                );
-                painter.rect_stroke(
-                    Rect::from_min_size(min, vec2(cell, cell)),
-                    CornerRadius::same(1),
-                    thin,
-                    StrokeKind::Inside,
-                );
-            }
-        }
-        Icon::List => {
-            for (index, y) in [0.25_f32, 0.5, 0.75].into_iter().enumerate() {
-                let py = area.top() + area.height() * y;
-                painter.circle_filled(pos2(area.left() + 1.5, py), 1.2, color);
-                painter.line_segment(
-                    [
-                        pos2(area.left() + area.width() * 0.18, py),
-                        pos2(area.right(), py),
-                    ],
-                    thin,
-                );
-                let _ = index;
+            Err(_) => {
+                // The SVG loader is installed by `theme::configure`; failing
+                // closed avoids drawing a mismatched fallback icon.
             }
         }
     }
+}
+
+/// Paint a semantic icon with an explicit optical size.
+pub(crate) fn paint_sized(
+    painter: &Painter,
+    rect: Rect,
+    icon: Icon,
+    size: IconSize,
+    color: Color32,
+) {
+    icon.paint_sized(painter, rect, size, color);
+}
+
+fn raster_pixels(points: f32, pixels_per_point: f32) -> u32 {
+    let pixels_per_point = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+        pixels_per_point
+    } else {
+        1.0
+    };
+    (points * pixels_per_point).round().max(8.0) as u32
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn context() -> egui::Context {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        context
+    }
+
+    #[test]
+    fn every_semantic_icon_maps_to_a_lucide_name() {
+        for icon in Icon::ALL {
+            assert!(
+                !icon.lucide().name().is_empty(),
+                "{icon:?} has no Lucide mapping"
+            );
+        }
+    }
+
+    #[test]
+    fn icon_sizes_follow_the_shared_scale() {
+        assert_eq!(IconSize::Small.points(), 16.0);
+        assert_eq!(IconSize::Standard.points(), 18.0);
+        assert_eq!(IconSize::Navigation.points(), 20.0);
+        assert_eq!(IconSize::EmptyState.points(), 32.0);
+        assert_eq!(STROKE_WIDTH, 1.75);
+    }
+
+    #[test]
+    fn raster_size_scales_with_device_pixel_ratio() {
+        assert_eq!(raster_pixels(16.0, 1.0), 16);
+        assert_eq!(raster_pixels(18.0, 1.5), 27);
+        assert_eq!(raster_pixels(32.0, 2.0), 64);
+        assert_eq!(raster_pixels(16.0, f32::NAN), 16);
+    }
+
+    #[test]
+    fn icon_color_roles_are_distinct() {
+        assert_ne!(IconColors::MUTED, IconColors::NORMAL);
+        assert_ne!(IconColors::NORMAL, IconColors::HOVERED);
+        assert_ne!(IconColors::HOVERED, IconColors::SELECTED);
+        assert_ne!(IconColors::SELECTED, IconColors::DISABLED);
+        assert_eq!(IconColors::SELECTED, Palette::ACCENT);
+    }
+
     #[test]
     fn every_icon_paints_without_panicking() {
-        let context = egui::Context::default();
+        let context = context();
         let output = context.run_ui(egui::RawInput::default(), |ui| {
-            let icons = [
-                Icon::Home,
-                Icon::Projects,
-                Icon::Settings,
-                Icon::Media,
-                Icon::Audio,
-                Icon::Text,
-                Icon::Stickers,
-                Icon::Effects,
-                Icon::Transitions,
-                Icon::Captions,
-                Icon::Filters,
-                Icon::Folder,
-                Icon::Export,
-                Icon::Close,
-                Icon::Eye,
-                Icon::Lock,
-                Icon::Volume,
-                Icon::Undo,
-                Icon::Redo,
-                Icon::Grid,
-                Icon::List,
-                Icon::Plus,
-                Icon::Select,
-                Icon::Split,
-                Icon::Delete,
-                Icon::Snap,
-                Icon::Link,
-            ];
-            for icon in icons {
-                let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::hover());
-                paint(ui.painter(), rect, icon, Color32::WHITE);
+            for icon in Icon::ALL {
+                let (rect, _) = ui.allocate_exact_size(
+                    Vec2::splat(IconSize::Standard.points()),
+                    egui::Sense::hover(),
+                );
+                icon.paint_sized(ui.painter(), rect, IconSize::Standard, IconColors::NORMAL);
             }
         });
-        assert!(!output.shapes.is_empty());
         output.drop_without_applying_deltas();
     }
 }
