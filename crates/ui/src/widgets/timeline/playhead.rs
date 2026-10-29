@@ -1,11 +1,8 @@
-//! Static timeline playhead rendering.
-//!
-//! The playhead is always at time zero in M1.1; seeking and playback are not
-//! implemented.
+//! Static time-zero playhead. Seeking and playback are not implemented.
 
-use egui::{pos2, Color32, Painter, Shape, Stroke};
+use egui::{pos2, vec2, Painter, Rect, Stroke, StrokeKind};
 
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 
 use super::scale::TimelineScale;
 
@@ -14,23 +11,21 @@ pub fn x_for_millis(scale: &TimelineScale, millis: u64) -> f32 {
     scale.x_for_seconds(millis as f64 / 1_000.0)
 }
 
-/// Draw a line and top handle for the playhead.
+/// Quiet line and outlined handle matching the empty-canvas reference.
 pub fn paint(painter: &Painter, top: f32, bottom: f32, x: f32) {
     if !x.is_finite() || !top.is_finite() || !bottom.is_finite() || bottom <= top {
         return;
     }
-
-    let color: Color32 = Palette::PLAYHEAD;
-    let line_top = top + 6.0;
     painter.line_segment(
-        [pos2(x, line_top), pos2(x, bottom)],
-        Stroke::new(2.0, color),
+        [pos2(x, top + 12.0), pos2(x, bottom)],
+        Stroke::new(1.0, Palette::PLAYHEAD),
     );
-    painter.add(Shape::convex_polygon(
-        vec![pos2(x - 5.0, top), pos2(x + 5.0, top), pos2(x, line_top)],
-        color,
-        Stroke::NONE,
-    ));
+    painter.rect_stroke(
+        Rect::from_min_size(pos2(x - 3.5, top + 1.0), vec2(7.0, 12.0)),
+        Radii::SMALL,
+        Stroke::new(1.5, Palette::PLAYHEAD),
+        StrokeKind::Inside,
+    );
 }
 
 #[cfg(test)]

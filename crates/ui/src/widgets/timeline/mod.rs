@@ -1,520 +1,555 @@
-//! Timeline shell: toolbar, ruler, empty track rows, playhead, and scrolling.
-//!
-//! Zoom is display-only and changes ruler density. No clips exist and every
-//! editing command remains disabled.
+//! Timeline presentation: pristine canvas, supplied rows/items, or explicit QA.
+//! Import, drop, selection, and editing controls are deliberately disabled.
 
 pub mod clip_view;
 pub mod playhead;
 pub mod scale;
 pub mod track_view;
 
+use std::sync::LazyLock;
+
 use egui::{
-    pos2, vec2, Align, Align2, CornerRadius, FontId, Rect, RichText, ScrollArea, Sense, Stroke, Ui,
+    pos2, vec2, Align, Align2, CornerRadius, FontId, Layout, Painter, Rect, ScrollArea, Sense,
+    Shape, Stroke, Ui,
 };
 
 use crate::config;
 use crate::editor_state::EditorSession;
 use crate::theme::{Palette, Radii};
+use crate::timeline_state::{TimelineContentState, TimelineDisplayMode, TimelineView};
 use crate::widgets::common;
 use crate::widgets::icons::{self, Icon};
 
 use self::scale::{format_ruler_label, TimelineScale};
-use self::track_view::TrackKind;
+
+const INVITATION: &str = "Drag material here and start to create";
+const DROP_UNAVAILABLE: &str =
+    "Placeholder only: media import and drag-and-drop are not implemented.";
+
+/// The visual demo and its toolbar control are opt-in for QA sessions only.
+static QA_CONTROLS_ENABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("CUTCRAFT_UI_DEMO").ok().as_deref() == Some("1"));
 
 pub fn show(ui: &mut Ui, session: &mut EditorSession) {
-    ui.horizontal(|ui| {
-        common::section_heading(ui, "Timeline");
-        ui.add_space(3.0);
-        common::badge(ui, "Demo", Palette::WARNING);
-        ui.add_space(3.0);
-        ui.separator();
-        ui.add_space(3.0);
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        session.timeline_pixels_per_second =
+            TimelineScale::new(session.timeline_pixels_per_second, 0.0).pixels_per_second();
+        toolbar(ui, session);
 
-        for (label, hint) in [
-            (
-                "Split",
-                "Splitting requires timeline commands and is not implemented.",
-            ),
-            (
-                "Delete",
-                "Deleting clips requires selection and is not implemented.",
-            ),
-            ("Add track", "Track management is not implemented."),
-        ] {
-            let response = ui.add_enabled(
-                false,
-                egui::Button::new(RichText::new(label).size(9.5)).min_size(vec2(0.0, 20.0)),
-            );
-            let _ = response.on_disabled_hover_text(hint);
-        }
-
-        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-            ui.label(
-                RichText::new("00:00:00:00 / 00:00:00:00")
-                    .monospace()
-                    .size(9.5)
-                    .color(Palette::TEXT_DISABLED),
-            );
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new(format!(
-                    "{} s \u{00b7} demo only",
-                    config::TIMELINE_DURATION_SECONDS
-                ))
-                .size(9.5)
-                .color(Palette::TEXT_DISABLED),
-            );
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            let plus = ui.small_button("+").on_hover_text("Zoom timeline in");
-            if plus.clicked() {
-                session.zoom_timeline_in();
-            }
-            ui.label(
-                RichText::new(format!(
-                    "{:.0}%",
-                    session.timeline_pixels_per_second / config::TIMELINE_PIXELS_PER_SECOND * 100.0
-                ))
-                .monospace()
-                .size(9.5)
-                .color(Palette::TEXT_SECONDARY),
-            );
-            let minus = ui
-                .small_button("\u{2212}")
-                .on_hover_text("Zoom timeline out");
-            if minus.clicked() {
-                session.zoom_timeline_out();
-            }
-        });
-    });
-
-    ui.add_space(6.0);
-
-    let tracks = track_view::tracks();
-    let available_body_height = ui.available_height().max(0.0);
-    let track_height = ((available_body_height - 16.0 - config::TIMELINE_RULER_HEIGHT)
-        / tracks.len() as f32)
-        .clamp(20.0, 58.0);
-    let tracks_height = config::TIMELINE_RULER_HEIGHT + track_height * tracks.len() as f32;
-    let content_height = tracks_height.max((available_body_height - 14.0).max(0.0));
-    let scale = TimelineScale::new(
-        session.timeline_pixels_per_second,
-        config::TIMELINE_LEADING_PADDING,
-    );
-
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-
-        let (header_rect, _) = ui.allocate_exact_size(
-            vec2(config::TRACK_HEADER_WIDTH, content_height),
-            Sense::hover(),
-        );
-        paint_track_headers(ui, header_rect, track_height);
-
-        let _ = ScrollArea::horizontal()
-            .id_salt("timeline_horizontal_scroll")
-            .auto_shrink([false, true])
-            .max_height(available_body_height)
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
-            .show(ui, |ui| {
-                let (content_rect, _) = ui.allocate_exact_size(
-                    vec2(
-                        scale.content_width(config::TIMELINE_DURATION_SECONDS),
-                        content_height,
-                    ),
-                    Sense::hover(),
-                );
-                paint_timeline_content(
-                    ui,
-                    content_rect,
-                    &scale,
-                    config::TIMELINE_DURATION_SECONDS,
-                    track_height,
-                );
-            });
-    });
-}
-
-fn paint_track_headers(ui: &Ui, rect: Rect, track_height: f32) {
-    let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::ZERO, Palette::TRACK_HEADER_BG);
-
-    let ruler_rect =
-        Rect::from_min_size(rect.min, vec2(rect.width(), config::TIMELINE_RULER_HEIGHT));
-    painter.rect_filled(ruler_rect, CornerRadius::ZERO, Palette::RULER_BG);
-    painter.text(
-        pos2(rect.left() + 12.0, ruler_rect.center().y),
-        Align2::LEFT_CENTER,
-        "TRACKS",
-        FontId::proportional(8.5),
-        Palette::TEXT_DISABLED,
-    );
-    painter.text(
-        pos2(rect.right() - 10.0, ruler_rect.center().y),
-        Align2::RIGHT_CENTER,
-        format!("{} TRACKS", track_view::tracks().len()),
-        FontId::proportional(7.5),
-        Palette::TEXT_DISABLED,
-    );
-
-    for (index, track) in track_view::tracks().iter().enumerate() {
-        let row = track_row_rect(rect, index, track_height);
-        let stripe_color = match track.kind {
-            TrackKind::Video => Palette::ACCENT,
-            TrackKind::Audio => Palette::WARNING,
+        let view = session.displayed_timeline();
+        let pristine = view.content_state() == TimelineContentState::PristineEmpty;
+        let header_width = if pristine {
+            0.0
+        } else {
+            config::TRACK_HEADER_WIDTH
         };
-
-        painter.line_segment(
-            [pos2(row.left(), row.top()), pos2(row.right(), row.top())],
-            Stroke::new(1.0, Palette::BORDER_SUBTLE),
-        );
-        painter.rect_filled(
-            Rect::from_min_size(row.min, vec2(3.0, row.height())),
-            CornerRadius::ZERO,
-            stripe_color,
-        );
-        painter.text(
-            pos2(row.left() + 13.0, row.center().y - 6.0),
-            Align2::LEFT_CENTER,
-            track.label,
-            FontId::monospace(10.5),
-            Palette::TEXT_PRIMARY,
-        );
-        painter.text(
-            pos2(row.left() + 42.0, row.center().y - 6.0),
-            Align2::LEFT_CENTER,
-            track.name,
-            FontId::proportional(10.5),
-            Palette::TEXT_SECONDARY,
-        );
-        painter.text(
-            pos2(row.left() + 42.0, row.center().y + 8.0),
-            Align2::LEFT_CENTER,
-            match track.kind {
-                TrackKind::Video => "Video track",
-                TrackKind::Audio => "Audio track",
+        let scale = TimelineScale::new(
+            session.timeline_pixels_per_second,
+            if pristine {
+                config::TIMELINE_EMPTY_LEADING_PADDING
+            } else {
+                config::TIMELINE_LEADING_PADDING
             },
-            FontId::proportional(8.5),
-            Palette::TEXT_DISABLED,
         );
-
-        let primary_icon = match track.kind {
-            TrackKind::Video => Icon::Eye,
-            TrackKind::Audio => Icon::Volume,
+        let available = ui.available_size().max(vec2(1.0, 1.0));
+        let body_height = (available.y - 14.0).max(config::TIMELINE_RULER_HEIGHT);
+        // No row height calculation divides by zero for a pristine project.
+        let track_height = if pristine {
+            config::TIMELINE_TRACK_HEIGHT
+        } else {
+            ((body_height - config::TIMELINE_RULER_HEIGHT) / view.tracks.len() as f32)
+                .clamp(24.0, 58.0)
         };
-        for (offset, icon) in [(40.0_f32, primary_icon), (18.0, Icon::Lock)] {
-            let icon_rect = Rect::from_center_size(
-                pos2(row.right() - offset, row.center().y),
-                vec2(14.0, 14.0),
-            );
-            icons::paint(&painter, icon_rect, icon, Palette::TEXT_DISABLED);
-        }
-    }
+        let rows_height = config::TIMELINE_RULER_HEIGHT + track_height * view.tracks.len() as f32;
+        let content_height = body_height.max(rows_height);
+        // A navigable view span is NOT a project duration. Even zero tracks fill
+        // the viewport, and the ruler continues over its complete visible range.
+        let display_end = view
+            .display_end_seconds()
+            .max(config::TIMELINE_DURATION_SECONDS as f64);
+        let content_width =
+            (header_width + scale.x_for_seconds(display_end) + scale.leading_padding())
+                .min(1_000_000.0)
+                .max(available.x);
+        let demo = session.timeline_display_mode == TimelineDisplayMode::VisualDemo;
+        let output = ScrollArea::new([true, rows_height > body_height])
+            .id_salt("timeline_scroll")
+            .scroll_offset(vec2(session.timeline_scroll[0], session.timeline_scroll[1]))
+            .auto_shrink([false, false])
+            .max_height(available.y)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+            .show_viewport(ui, |ui, viewport| {
+                let (content, _) =
+                    ui.allocate_exact_size(vec2(content_width, content_height), Sense::hover());
+                let visible = viewport
+                    .translate(content.min.to_vec2())
+                    .intersect(ui.clip_rect());
+                paint_content(ui, content, visible, &scale, view, track_height, demo);
+            });
+        let offset = output.state.clamped_offset();
+        session.timeline_scroll = [offset.x, offset.y];
+    });
+}
 
-    painter.line_segment(
-        [
-            pos2(rect.right() - 1.0, rect.top()),
-            pos2(rect.right() - 1.0, rect.bottom()),
-        ],
-        Stroke::new(1.0, Palette::BORDER),
+fn toolbar(ui: &mut Ui, session: &mut EditorSession) {
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), config::TIMELINE_TOOLBAR_HEIGHT),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 5.0;
+            ui.add_space(4.0);
+            disabled_tool(ui, Icon::Plus, "Add / import", DROP_UNAVAILABLE);
+            ui.separator();
+            disabled_tool(
+                ui,
+                Icon::Select,
+                "Selection tool",
+                config::UNIMPLEMENTED_HINT,
+            );
+            ui.separator();
+            disabled_tool(ui, Icon::Undo, "Undo", config::UNIMPLEMENTED_HINT);
+            disabled_tool(ui, Icon::Redo, "Redo", config::UNIMPLEMENTED_HINT);
+            ui.separator();
+            disabled_tool(ui, Icon::Split, "Split", config::UNIMPLEMENTED_HINT);
+            disabled_tool(ui, Icon::Delete, "Delete", config::UNIMPLEMENTED_HINT);
+            if session.timeline_display_mode == TimelineDisplayMode::VisualDemo {
+                common::badge(ui, "Visual demo · not project data", Palette::WARNING);
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(5.0);
+                if *QA_CONTROLS_ENABLED
+                    || session.timeline_display_mode == TimelineDisplayMode::VisualDemo
+                {
+                    ui.menu_button("QA", |ui| {
+                        let mut enabled =
+                            session.timeline_display_mode == TimelineDisplayMode::VisualDemo;
+                        if ui
+                            .checkbox(&mut enabled, "Visual demo (not project data)")
+                            .changed()
+                        {
+                            session.set_timeline_demo(enabled);
+                        }
+                        ui.label("Synthetic layout for visual QA only. No media is loaded.");
+                    });
+                }
+                if zoom_button(ui, "+", "Zoom timeline in").clicked() {
+                    session.zoom_timeline_in();
+                }
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = 92.0;
+                    let zoom = ui.add(
+                        egui::Slider::new(
+                            &mut session.timeline_pixels_per_second,
+                            config::TIMELINE_MIN_PIXELS_PER_SECOND
+                                ..=config::TIMELINE_MAX_PIXELS_PER_SECOND,
+                        )
+                        .logarithmic(true)
+                        .show_value(false),
+                    );
+                    let _ = zoom.on_hover_text("Timeline zoom");
+                });
+                if zoom_button(ui, "−", "Zoom timeline out").clicked() {
+                    session.zoom_timeline_out();
+                }
+                ui.separator();
+                disabled_tool(
+                    ui,
+                    Icon::Link,
+                    "Linked selection",
+                    config::UNIMPLEMENTED_HINT,
+                );
+                disabled_tool(ui, Icon::Snap, "Snapping", config::UNIMPLEMENTED_HINT);
+            });
+        },
     );
 }
 
-fn paint_timeline_content(
+fn disabled_tool(ui: &mut Ui, icon: Icon, label: &str, hint: &str) {
+    let response = ui.add_enabled(
+        false,
+        egui::Button::new("")
+            .frame(false)
+            .corner_radius(Radii::CONTROL)
+            .min_size(vec2(26.0, 24.0)),
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::accesskit::Role::Button, false, label));
+    icons::paint(
+        ui.painter(),
+        response.rect.shrink(5.0),
+        icon,
+        Palette::TEXT_DISABLED,
+    );
+    response.on_disabled_hover_text(format!("{label} — {hint}"));
+}
+
+fn zoom_button(ui: &mut Ui, glyph: &str, label: &str) -> egui::Response {
+    let response = ui.add(
+        egui::Button::new(glyph)
+            .frame(false)
+            .corner_radius(Radii::CONTROL)
+            .min_size(vec2(24.0, 24.0)),
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::accesskit::Role::Button, true, label));
+    response.on_hover_text(label)
+}
+
+fn paint_content(
     ui: &Ui,
-    rect: Rect,
+    content: Rect,
+    visible: Rect,
     scale: &TimelineScale,
-    duration_seconds: u64,
+    view: &TimelineView,
     track_height: f32,
+    demo: bool,
 ) {
-    let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::ZERO, Palette::TRACK_BG);
+    let painter = ui.painter_at(visible);
+    painter.rect_filled(visible, CornerRadius::ZERO, Palette::TRACK_BG);
+    let pristine = view.content_state() == TimelineContentState::PristineEmpty;
+    let header_width = if pristine {
+        0.0
+    } else {
+        config::TRACK_HEADER_WIDTH
+    };
+    let time_viewport = Rect::from_min_max(visible.min + vec2(header_width, 0.0), visible.max);
+    let ruler = Rect::from_min_size(
+        time_viewport.min,
+        vec2(time_viewport.width(), config::TIMELINE_RULER_HEIGHT),
+    );
+    let body = Rect::from_min_max(
+        pos2(time_viewport.left(), ruler.bottom()),
+        time_viewport.max,
+    );
+    let body_painter = painter.with_clip_rect(body);
+    let time_origin_x = content.left() + header_width;
 
-    let ruler_rect =
-        Rect::from_min_size(rect.min, vec2(rect.width(), config::TIMELINE_RULER_HEIGHT));
-    painter.rect_filled(ruler_rect, CornerRadius::ZERO, Palette::RULER_BG);
-
-    for (index, track) in track_view::tracks().iter().enumerate() {
-        let row = track_row_rect(rect, index, track_height);
-        if index % 2 == 1 {
-            painter.rect_filled(row, CornerRadius::ZERO, Palette::TRACK_ALT_BG);
-        }
-        painter.line_segment(
-            [pos2(row.left(), row.top()), pos2(row.right(), row.top())],
-            Stroke::new(1.0, Palette::BORDER_SUBTLE),
+    if pristine {
+        paint_invitation(ui, body, scale.leading_padding());
+    } else {
+        let header_clip = Rect::from_min_max(
+            pos2(visible.left(), body.top()),
+            pos2(time_viewport.left(), body.bottom()),
         );
-        let has_demo = demo_clip(index).is_some();
-        if !has_demo {
-            painter.text(
-                pos2(row.left() + scale.leading_padding() + 12.0, row.center().y),
-                Align2::LEFT_CENTER,
-                match track.kind {
-                    TrackKind::Video => "No clips \u{2014} video lane",
-                    TrackKind::Audio => "No clips \u{2014} audio lane",
-                },
-                FontId::proportional(9.5),
-                Palette::TEXT_DISABLED,
+        let header_painter = painter.with_clip_rect(header_clip);
+        for (index, track) in view.tracks.iter().enumerate() {
+            let top = content.top() + config::TIMELINE_RULER_HEIGHT + track_height * index as f32;
+            let row = Rect::from_min_size(
+                pos2(time_origin_x, top),
+                vec2(content.width() - header_width, track_height),
             );
+            if !row.intersects(body) {
+                continue;
+            }
+            if index % 2 == 1 {
+                body_painter.rect_filled(row, CornerRadius::ZERO, Palette::TRACK_ALT_BG);
+            }
+            body_painter.line_segment(
+                [pos2(body.left(), top), pos2(body.right(), top)],
+                Stroke::new(1.0, Palette::BORDER_SUBTLE),
+            );
+            track_view::paint_header(
+                &header_painter,
+                Rect::from_min_size(pos2(visible.left(), top), vec2(header_width, track_height)),
+                track,
+            );
+            for item in &track.items {
+                clip_view::paint(&body_painter, row, scale, item, track.kind, demo);
+            }
         }
-    }
-
-    paint_demo_clips(&painter, rect, scale, track_height);
-
-    let content_left = rect.left();
-    let viewport = painter.clip_rect();
-    let intervals = scale.ticks(duration_seconds);
-    let interval_seconds = scale.major_tick_interval() as f64;
-
-    for second in &intervals {
-        let x = content_left + scale.x_for_seconds(*second as f64);
-        if x < viewport.left() || x > viewport.right() {
-            continue;
-        }
-
-        painter.line_segment(
-            [pos2(x, ruler_rect.bottom()), pos2(x, rect.bottom())],
-            Stroke::new(1.0, Palette::BORDER_SUBTLE),
-        );
         painter.line_segment(
             [
-                pos2(x, ruler_rect.bottom() - 7.0),
-                pos2(x, ruler_rect.bottom()),
+                pos2(time_viewport.left(), visible.top()),
+                pos2(time_viewport.left(), visible.bottom()),
             ],
             Stroke::new(1.0, Palette::BORDER),
         );
+    }
 
-        let subdivisions = if interval_seconds <= 2.0 { 4 } else { 10 };
-        for step in 1..subdivisions {
-            let minor_seconds =
-                *second as f64 + interval_seconds * step as f64 / f64::from(subdivisions);
-            let minor_x = content_left + scale.x_for_seconds(minor_seconds);
-            if minor_x > viewport.left() && minor_x < viewport.right() {
-                painter.line_segment(
-                    [
-                        pos2(minor_x, ruler_rect.bottom() - 4.0),
-                        pos2(minor_x, ruler_rect.bottom()),
-                    ],
-                    Stroke::new(1.0, Palette::BORDER_SUBTLE),
-                );
-            }
+    paint_ruler(&painter.with_clip_rect(ruler), ruler, scale, time_origin_x);
+    playhead::paint(
+        &painter.with_clip_rect(time_viewport),
+        ruler.top(),
+        body.bottom(),
+        time_origin_x + playhead::x_for_millis(scale, config::PLAYHEAD_MILLIS),
+    );
+}
+
+fn paint_ruler(painter: &Painter, rect: Rect, scale: &TimelineScale, origin_x: f32) {
+    painter.rect_filled(rect, CornerRadius::ZERO, Palette::RULER_BG);
+    let interval = scale.major_tick_interval() as f64;
+    for second in scale.ticks_in_view(rect.left() - origin_x, rect.right() - origin_x) {
+        let x = origin_x + scale.x_for_seconds(second as f64);
+        painter.line_segment(
+            [pos2(x, rect.top() + 3.0), pos2(x, rect.top() + 13.0)],
+            Stroke::new(1.0, Palette::TEXT_DISABLED),
+        );
+        // Minor ticks are generated even when their preceding major tick is offscreen.
+        for division in 1..10 {
+            let minor_x = origin_x
+                + scale.x_for_seconds(second as f64 + interval * f64::from(division) / 10.0);
+            painter.line_segment(
+                [
+                    pos2(minor_x, rect.top() + 4.0),
+                    pos2(minor_x, rect.top() + 9.0),
+                ],
+                Stroke::new(1.0, Palette::BORDER),
+            );
         }
-
-        if x + 36.0 < viewport.right() {
+        if x >= rect.left() && x + 40.0 < rect.right() {
             painter.text(
-                pos2(x + 4.0, ruler_rect.center().y),
+                pos2(x + 4.0, rect.top() + 9.0),
                 Align2::LEFT_CENTER,
-                format_ruler_label(*second),
-                FontId::monospace(9.0),
+                format_ruler_label(second),
+                FontId::proportional(10.0),
                 Palette::TEXT_MUTED,
             );
         }
     }
-
-    painter.line_segment(
-        [
-            pos2(rect.left(), ruler_rect.bottom()),
-            pos2(rect.right(), ruler_rect.bottom()),
-        ],
-        Stroke::new(1.0, Palette::BORDER),
-    );
-
-    let playhead_x = content_left + playhead::x_for_millis(scale, config::PLAYHEAD_MILLIS);
-    playhead::paint(&painter, rect.top(), rect.bottom(), playhead_x);
 }
 
-fn track_row_rect(rect: Rect, index: usize, track_height: f32) -> Rect {
-    Rect::from_min_size(
+fn invitation_rect(body: Rect, leading_padding: f32) -> Rect {
+    let height = config::TIMELINE_INVITATION_HEIGHT.min(body.height().max(0.0));
+    Rect::from_min_max(
         pos2(
-            rect.left(),
-            rect.top() + config::TIMELINE_RULER_HEIGHT + track_height * index as f32,
+            (body.left() + leading_padding).min(body.right()),
+            body.center().y - height / 2.0,
         ),
-        vec2(rect.width(), track_height),
+        pos2(
+            (body.right() - 10.0).max(body.left() + leading_padding),
+            body.center().y + height / 2.0,
+        ),
     )
 }
 
-struct DemoClip {
-    start: f32,
-    end: f32,
-    label: &'static str,
-    audio: bool,
-}
-
-fn demo_clip(track_index: usize) -> Option<DemoClip> {
-    match track_index {
-        1 => Some(DemoClip {
-            start: 2.0,
-            end: 8.0,
-            label: "Demo title",
-            audio: false,
-        }),
-        2 => Some(DemoClip {
-            start: 0.5,
-            end: 14.0,
-            label: "Demo clip \u{00b7} preview only",
-            audio: false,
-        }),
-        3 => Some(DemoClip {
-            start: 0.5,
-            end: 14.0,
-            label: "Demo audio \u{00b7} preview only",
-            audio: true,
-        }),
-        _ => None,
+fn paint_invitation(ui: &Ui, body: Rect, leading_padding: f32) {
+    let rect = invitation_rect(body, leading_padding);
+    if rect.width() < 100.0 || rect.height() < 30.0 {
+        return;
     }
-}
-
-fn paint_demo_clips(painter: &egui::Painter, rect: Rect, scale: &TimelineScale, track_height: f32) {
-    for index in 0..track_view::tracks().len() {
-        let Some(clip) = demo_clip(index) else {
-            continue;
-        };
-        let row = track_row_rect(rect, index, track_height);
-        let x0 = rect.left() + scale.x_for_seconds(f64::from(clip.start));
-        let x1 = rect.left() + scale.x_for_seconds(f64::from(clip.end));
-        let clip_rect = Rect::from_min_max(pos2(x0, row.top() + 4.0), pos2(x1, row.bottom() - 4.0));
-        if clip_rect.width() < 2.0 {
-            continue;
-        }
-
-        let (fill, border, text) = if clip.audio {
-            (
-                egui::Color32::from_rgb(0x3a, 0x30, 0x1e),
-                egui::Color32::from_rgb(0x6a, 0x54, 0x2a),
-                Palette::WARNING,
-            )
-        } else {
-            (
-                egui::Color32::from_rgb(0x14, 0x3c, 0x40),
-                Palette::ACCENT_DIM,
-                Palette::ACCENT_LIGHT,
-            )
-        };
-        painter.rect_filled(clip_rect, Radii::SMALL, fill);
-        painter.rect_stroke(
-            clip_rect,
-            Radii::SMALL,
-            Stroke::new(1.0, border),
-            egui::StrokeKind::Inside,
-        );
-        painter.rect_filled(
-            Rect::from_min_size(clip_rect.min, vec2(clip_rect.width(), 2.0)),
-            CornerRadius::ZERO,
-            border,
-        );
-        if clip_rect.width() > 42.0 {
-            painter.text(
-                pos2(clip_rect.left() + 7.0, clip_rect.center().y + 1.0),
-                Align2::LEFT_CENTER,
-                clip.label,
-                FontId::proportional(if clip_rect.width() < 80.0 { 8.0 } else { 9.0 }),
-                text,
-            );
-        }
-        if clip_rect.width() > 150.0 {
-            let badge = Rect::from_min_size(
-                pos2(clip_rect.right() - 42.0, clip_rect.top() + 5.0),
-                vec2(37.0, 13.0),
-            );
-            painter.rect_filled(badge, Radii::SMALL, egui::Color32::from_black_alpha(70));
-            painter.text(
-                badge.center(),
-                Align2::CENTER_CENTER,
-                "DEMO",
-                FontId::proportional(7.0),
-                text,
-            );
+    let painter = ui.painter_at(body);
+    painter.rect_filled(rect, Radii::SMALL, Palette::TIMELINE_DROP_BG);
+    // Original dotted outline; the reference treats this as a canvas region,
+    // so only a small corner radius separates it from the surrounding timeline.
+    let radius = f32::from(Radii::SMALL.nw).min(rect.height() / 2.0);
+    let mut path = Vec::with_capacity(37);
+    for (center, start_angle) in [
+        (
+            pos2(rect.right() - radius, rect.top() + radius),
+            -std::f32::consts::FRAC_PI_2,
+        ),
+        (pos2(rect.right() - radius, rect.bottom() - radius), 0.0),
+        (
+            pos2(rect.left() + radius, rect.bottom() - radius),
+            std::f32::consts::FRAC_PI_2,
+        ),
+        (
+            pos2(rect.left() + radius, rect.top() + radius),
+            std::f32::consts::PI,
+        ),
+    ] {
+        for step in 0..=8 {
+            let angle = start_angle + step as f32 / 8.0 * std::f32::consts::FRAC_PI_2;
+            path.push(center + radius * vec2(angle.cos(), angle.sin()));
         }
     }
+    if let Some(first) = path.first().copied() {
+        path.push(first);
+    }
+    painter.extend(Shape::dotted_line(
+        &path,
+        Palette::TIMELINE_DROP_BORDER,
+        4.0,
+        0.6,
+    ));
+    icons::paint(
+        &painter,
+        Rect::from_center_size(pos2(rect.left() + 31.0, rect.center().y), vec2(18.0, 18.0)),
+        Icon::Media,
+        Palette::TEXT_SECONDARY,
+    );
+    painter.text(
+        pos2(rect.left() + 55.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        INVITATION,
+        FontId::proportional(12.0),
+        Palette::TEXT_SECONDARY,
+    );
+    ui.interact(
+        rect,
+        ui.scope_id().with("timeline_drop_placeholder"),
+        Sense::hover(),
+    )
+    .on_hover_cursor(egui::CursorIcon::NotAllowed)
+    .on_hover_text(DROP_UNAVAILABLE);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::timeline_state::{TimelineItemView, TimelineTrackView, TrackKind};
 
-    fn test_session() -> EditorSession {
-        EditorSession::default()
+    fn input(width: f32, height: f32) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(width, height))),
+            ..Default::default()
+        }
+    }
+
+    fn labels(output: &egui::FullOutput) -> Vec<String> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn track(label: &str) -> TimelineTrackView {
+        TimelineTrackView {
+            label: label.to_owned(),
+            name: "Supplied track".to_owned(),
+            kind: TrackKind::Video,
+            items: Vec::new(),
+        }
     }
 
     #[test]
-    fn timeline_renders_headlessly_with_scroll_content() {
-        let context = egui::Context::default();
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 360.0))),
-            ..Default::default()
-        };
-        let mut session = test_session();
-        let output = context.run_ui(input, |ui| show(ui, &mut session));
+    fn pristine_canvas_has_one_invitation_and_no_rows_or_demo_content() {
+        for (width, height) in [(960.0, 280.0), (1600.0, 400.0), (1861.0, 486.0)] {
+            let context = egui::Context::default();
+            crate::theme::configure(&context);
+            let mut session = EditorSession::default();
+            let output = context.run_ui(input(width, height), |ui| show(ui, &mut session));
+            let text = labels(&output);
+            assert_eq!(
+                text.iter()
+                    .filter(|text| text.as_str() == INVITATION)
+                    .count(),
+                1
+            );
+            assert!(text.iter().any(|text| text == "00:00"));
+            assert!(!text.iter().any(|text| text.contains("Demo")
+                || text.contains("DEMO")
+                || text.contains("No clips")));
+            for label in ["V1", "V2", "V3", "A1", "A2", "A3", "TRACKS"] {
+                assert!(!text.iter().any(|text| text == label));
+            }
+            output.drop_without_applying_deltas();
+        }
+    }
 
-        assert!(!output.shapes.is_empty());
+    #[test]
+    fn supplied_empty_and_populated_tracks_render_without_the_invitation() {
+        let context = egui::Context::default();
+        let mut session = EditorSession::default();
+        session.timeline_view.tracks.push(track("V7"));
+        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        assert!(labels(&output).iter().any(|text| text == "V7"));
+        assert!(!labels(&output).iter().any(|text| text == INVITATION));
+        output.drop_without_applying_deltas();
+        session.timeline_view.tracks.push(track("V8"));
+        session.timeline_view.tracks[1].items.push(
+            TimelineItemView::new("Supplied item", 1.0, 8.0).expect("valid display geometry"),
+        );
+        let before = session.timeline_view.clone();
+        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        let text = labels(&output);
+        for expected in ["V7", "V8", "Supplied item"] {
+            assert!(text.iter().any(|text| text == expected));
+        }
+        assert!(!text.iter().any(|text| text == "DEMO" || text == INVITATION));
+        assert_eq!(session.timeline_view, before);
         output.drop_without_applying_deltas();
     }
 
     #[test]
-    fn zero_ruler_label_and_playhead_are_not_hidden_under_track_headers() {
+    fn rendering_demo_never_changes_supplied_content() {
         let context = egui::Context::default();
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 360.0))),
-            ..Default::default()
-        };
-        let mut session = test_session();
-        let output = context.run_ui(input, |ui| show(ui, &mut session));
+        let mut session = EditorSession::default();
+        session.timeline_view.tracks.push(track("V7"));
+        let before = session.timeline_view.clone();
+        session.set_timeline_demo(true);
+        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        assert!(labels(&output).iter().any(|text| text == "Demo title"));
+        assert_eq!(session.timeline_view, before);
+        output.drop_without_applying_deltas();
+        session.set_timeline_demo(false);
+        assert_eq!(session.displayed_timeline(), &before);
+    }
 
-        let zero_label = output.shapes.iter().find_map(|clipped| {
-            if let egui::Shape::Text(text) = &clipped.shape {
-                (text.galley.text() == "0:00").then_some((text.pos, clipped.clip_rect))
-            } else {
-                None
+    #[test]
+    fn drop_events_do_not_import_or_synthesize_items() {
+        let context = egui::Context::default();
+        let mut session = EditorSession::default();
+        #[derive(Debug)]
+        struct DroppedFile(std::path::PathBuf);
+        impl egui::DroppedFile for DroppedFile {
+            fn path(&self) -> &std::path::Path {
+                &self.0
             }
-        });
-        let (label_pos, label_clip) = zero_label.expect("zero-second label should be painted");
-        assert!(
-            label_clip.contains(label_pos),
-            "0:00 label must be inside the visible timeline clip"
-        );
+            fn bytes(&self) -> Result<Vec<u8>, String> {
+                Ok(Vec::new())
+            }
+        }
 
+        let mut dropped = input(1000.0, 360.0);
+        dropped
+            .dropped_files
+            .push(std::sync::Arc::new(DroppedFile(std::path::PathBuf::from(
+                "not-imported.mp4",
+            ))));
+        let output = context.run_ui(dropped, |ui| show(ui, &mut session));
+        assert!(session.timeline_view.tracks.is_empty());
+        assert_eq!(session.timeline_display_mode, TimelineDisplayMode::Project);
+        output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn fresh_session_resets_scroll_even_after_demo_used_the_same_widget() {
+        let context = egui::Context::default();
+        let mut session = EditorSession::default();
+        session.set_timeline_demo(true);
+        session.timeline_scroll[0] = 900.0;
+        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
+        output.drop_without_applying_deltas();
+        let mut fresh = EditorSession::default();
+        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut fresh));
+        assert_eq!(fresh.timeline_scroll, [0.0; 2]);
+        assert!(labels(&output).iter().any(|text| text == "00:00"));
+        output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn zero_playhead_and_invitation_align_at_the_canvas_leading_padding() {
+        let context = egui::Context::default();
+        let mut session = EditorSession::default();
+        let output = context.run_ui(input(1000.0, 360.0), |ui| show(ui, &mut session));
         let playhead = output.shapes.iter().find_map(|clipped| {
-            if let egui::Shape::LineSegment { points, stroke } = &clipped.shape {
-                (stroke.color == Palette::PLAYHEAD && stroke.width >= 2.0)
+            if let Shape::LineSegment { points, stroke } = &clipped.shape {
+                (stroke.color == Palette::PLAYHEAD && points[0].x == points[1].x)
                     .then_some((points[0].x, clipped.clip_rect))
             } else {
                 None
             }
         });
-        let (playhead_x, playhead_clip) = playhead.expect("playhead line should be painted");
-        let expected = playhead_clip.left() + config::TIMELINE_LEADING_PADDING;
-        assert!(
-            (playhead_x - expected).abs() < 0.01,
-            "playhead should sit at time zero inside the content area"
-        );
-        assert!(playhead_clip.contains(pos2(playhead_x, playhead_clip.center().y)));
-
+        let (x, clip) = playhead.expect("time-zero playhead");
+        assert!((x - clip.left() - config::TIMELINE_EMPTY_LEADING_PADDING).abs() < 0.01);
+        assert!(clip.contains(pos2(x, clip.center().y)));
         output.drop_without_applying_deltas();
     }
 
     #[test]
-    fn track_rows_tile_below_the_ruler() {
-        let rect = Rect::from_min_size(
-            pos2(10.0, 20.0),
-            vec2(
-                600.0,
-                config::TIMELINE_RULER_HEIGHT
-                    + config::TIMELINE_TRACK_HEIGHT * track_view::tracks().len() as f32,
-            ),
-        );
-        let first = track_row_rect(rect, 0, config::TIMELINE_TRACK_HEIGHT);
-        let second = track_row_rect(rect, 1, config::TIMELINE_TRACK_HEIGHT);
-        let last = track_row_rect(
-            rect,
-            track_view::tracks().len() - 1,
-            config::TIMELINE_TRACK_HEIGHT,
-        );
-
-        assert_eq!(first.top(), rect.top() + config::TIMELINE_RULER_HEIGHT);
-        assert_eq!(second.top(), first.bottom());
-        assert_eq!(last.bottom(), rect.bottom());
+    fn invitation_fills_canvas_width_and_keeps_reference_height_on_resize() {
+        for width in [960.0, 1600.0, 1861.0] {
+            let body = Rect::from_min_size(pos2(0.0, 58.0), vec2(width, 400.0));
+            let invitation = invitation_rect(body, config::TIMELINE_EMPTY_LEADING_PADDING);
+            assert_eq!(invitation.left(), 78.0);
+            assert_eq!(invitation.right(), width - 10.0);
+            assert_eq!(invitation.height(), 68.0);
+            assert_eq!(invitation.center().y, body.center().y);
+            assert!(body.contains_rect(invitation));
+        }
     }
 }

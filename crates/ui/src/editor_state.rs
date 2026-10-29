@@ -6,6 +6,7 @@
 
 use crate::config;
 use crate::export_settings::ExportSettings;
+use crate::timeline_state::{self, TimelineDisplayMode, TimelineView};
 
 /// Left-panel library categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +198,11 @@ pub struct EditorSession {
     pub inspector_visible: bool,
     pub timeline_visible: bool,
     pub timeline_pixels_per_second: f32,
+    /// Supplied, non-authoritative presentation data; never seeded from demos.
+    pub timeline_view: TimelineView,
+    pub timeline_display_mode: TimelineDisplayMode,
+    /// Session-owned scroll offsets prevent egui memory leaking into new projects.
+    pub timeline_scroll: [f32; 2],
     pub left_panel_fraction: f32,
     pub right_panel_fraction: f32,
 }
@@ -226,6 +232,9 @@ impl Default for EditorSession {
             inspector_visible: true,
             timeline_visible: true,
             timeline_pixels_per_second: config::TIMELINE_PIXELS_PER_SECOND,
+            timeline_view: TimelineView::default(),
+            timeline_display_mode: TimelineDisplayMode::Project,
+            timeline_scroll: [0.0; 2],
             left_panel_fraction: config::WORKSPACE_LEFT_FRACTION,
             right_panel_fraction: config::WORKSPACE_RIGHT_FRACTION,
         }
@@ -233,6 +242,24 @@ impl Default for EditorSession {
 }
 
 impl EditorSession {
+    /// Select a render source without ever modifying supplied timeline data.
+    pub fn displayed_timeline(&self) -> &TimelineView {
+        match self.timeline_display_mode {
+            TimelineDisplayMode::Project => &self.timeline_view,
+            TimelineDisplayMode::VisualDemo => timeline_state::visual_demo(),
+        }
+    }
+
+    /// Opt into/out of QA. Each switch starts the selected view at zero.
+    pub fn set_timeline_demo(&mut self, enabled: bool) {
+        self.timeline_display_mode = if enabled {
+            TimelineDisplayMode::VisualDemo
+        } else {
+            TimelineDisplayMode::Project
+        };
+        self.timeline_scroll = [0.0; 2];
+    }
+
     pub fn reset_layout(&mut self) {
         self.tools_visible = true;
         self.inspector_visible = true;

@@ -60,11 +60,15 @@ pub const PREVIEW_FPS_DENOMINATOR: u32 = 1;
 /// Static placeholder playhead position and timeline view length.
 pub const PLAYHEAD_MILLIS: u64 = 0;
 pub const TIMELINE_DURATION_SECONDS: u64 = 180;
-pub const TIMELINE_PIXELS_PER_SECOND: f32 = 10.0;
+pub const TIMELINE_PIXELS_PER_SECOND: f32 = 30.0;
 pub const TIMELINE_MIN_PIXELS_PER_SECOND: f32 = 4.0;
 pub const TIMELINE_MAX_PIXELS_PER_SECOND: f32 = 80.0;
 pub const TIMELINE_LEADING_PADDING: f32 = 14.0;
 
+/// Timeline chrome/empty-canvas geometry in points, measured from the M1.5 reference.
+pub const TIMELINE_TOOLBAR_HEIGHT: f32 = 32.0;
+pub const TIMELINE_EMPTY_LEADING_PADDING: f32 = 78.0;
+pub const TIMELINE_INVITATION_HEIGHT: f32 = 68.0;
 /// Timeline row geometry in points.
 pub const TIMELINE_RULER_HEIGHT: f32 = 26.0;
 pub const TIMELINE_TRACK_HEIGHT: f32 = 40.0;

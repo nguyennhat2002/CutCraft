@@ -232,11 +232,135 @@ mod tests {
     use super::*;
     use crate::editor_state::{EditorTool, PreviewAspect};
     use crate::export_settings::{BitratePreset, ExportResolution};
+    use crate::timeline_state::{
+        TimelineContentState, TimelineDisplayMode, TimelineItemView, TimelineTrackView, TrackKind,
+    };
 
     fn editor_state() -> AppState {
         let mut state = AppState::default();
         state.create_temporary_project();
         state
+    }
+
+    fn supplied_track(label: &str, items: Vec<TimelineItemView>) -> TimelineTrackView {
+        TimelineTrackView {
+            label: label.to_owned(),
+            name: "Supplied track".to_owned(),
+            kind: TrackKind::Video,
+            items,
+        }
+    }
+
+    #[test]
+    fn new_project_starts_with_a_pristine_timeline() {
+        let state = editor_state();
+        let session = state.session().expect("new session should exist");
+
+        assert_eq!(
+            session.timeline_view.content_state(),
+            TimelineContentState::PristineEmpty
+        );
+        assert!(session.timeline_view.tracks.is_empty());
+        assert_eq!(session.timeline_display_mode, TimelineDisplayMode::Project);
+        assert_eq!(session.timeline_scroll, [0.0; 2]);
+    }
+
+    #[test]
+    fn supplied_track_and_navigation_preserve_empty_track_state() {
+        let mut state = editor_state();
+        {
+            let session = state.session_mut().expect("editor session should exist");
+            session
+                .timeline_view
+                .tracks
+                .push(supplied_track("V1", Vec::new()));
+            session.timeline_scroll = [120.0, 0.0];
+        }
+
+        assert_eq!(
+            state
+                .session()
+                .expect("session should exist")
+                .timeline_view
+                .content_state(),
+            TimelineContentState::EmptyTracks
+        );
+
+        state.go_home();
+        assert!(state.resume_editor());
+
+        let session = state.session().expect("session should survive navigation");
+        assert_eq!(
+            session.timeline_view.content_state(),
+            TimelineContentState::EmptyTracks
+        );
+        assert_eq!(session.timeline_view.tracks.len(), 1);
+        assert!(session.timeline_view.tracks[0].items.is_empty());
+        assert_eq!(session.timeline_scroll, [120.0, 0.0]);
+    }
+
+    #[test]
+    fn populated_timeline_survives_home_and_resume() {
+        let mut state = editor_state();
+        {
+            let session = state.session_mut().expect("editor session should exist");
+            session.timeline_view.tracks.push(supplied_track(
+                "V1",
+                vec![TimelineItemView::new("Supplied item", 1.0, 7.0)
+                    .expect("valid display range")],
+            ));
+        }
+
+        state.go_home();
+        assert!(state.resume_editor());
+
+        let session = state.session().expect("session should survive navigation");
+        assert_eq!(
+            session.timeline_view.content_state(),
+            TimelineContentState::Populated
+        );
+        assert_eq!(session.timeline_view.tracks[0].items.len(), 1);
+        assert_eq!(
+            session.timeline_view.tracks[0].items[0].label(),
+            "Supplied item"
+        );
+    }
+
+    #[test]
+    fn visual_demo_is_explicit_and_never_replaces_supplied_timeline_data() {
+        let mut state = editor_state();
+        let before = {
+            let session = state.session_mut().expect("editor session should exist");
+            session
+                .timeline_view
+                .tracks
+                .push(supplied_track("V1", Vec::new()));
+            session.timeline_view.clone()
+        };
+
+        {
+            let session = state.session_mut().expect("editor session should exist");
+            session.set_timeline_demo(true);
+            assert_eq!(
+                session.timeline_display_mode,
+                TimelineDisplayMode::VisualDemo
+            );
+            assert_eq!(session.timeline_view, before);
+            assert!(!session.displayed_timeline().tracks.is_empty());
+
+            session.set_timeline_demo(false);
+            assert_eq!(session.timeline_display_mode, TimelineDisplayMode::Project);
+            assert_eq!(session.displayed_timeline(), &before);
+            assert_eq!(session.timeline_view, before);
+        }
+
+        state.create_temporary_project();
+        let session = state.session().expect("new session should exist");
+        assert_eq!(session.timeline_display_mode, TimelineDisplayMode::Project);
+        assert_eq!(
+            session.timeline_view.content_state(),
+            TimelineContentState::PristineEmpty
+        );
     }
 
     #[test]
@@ -348,6 +472,11 @@ mod tests {
                 .expect("temporary editor session should exist");
             session.active_tool = EditorTool::Text;
             session.export_open = true;
+            session
+                .timeline_view
+                .tracks
+                .push(supplied_track("V1", Vec::new()));
+            session.set_timeline_demo(true);
         }
 
         state.create_temporary_project();
@@ -356,6 +485,12 @@ mod tests {
         assert_eq!(session.active_tool, EditorTool::Captions);
         assert!(!session.export_open);
         assert_eq!(state.screen(), Screen::Editor);
+        assert_eq!(session.timeline_display_mode, TimelineDisplayMode::Project);
+        assert_eq!(
+            session.timeline_view.content_state(),
+            TimelineContentState::PristineEmpty
+        );
+        assert!(session.timeline_view.tracks.is_empty());
     }
 
     #[test]
