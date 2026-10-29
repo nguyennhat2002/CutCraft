@@ -1,0 +1,18 @@
+[workspace]
+members = ["apps/capcut-editor", "crates/core", "crates/capcut-format", "crates/engine", "crates/media", "crates/renderer", "crates/ui", "xtask"]
+default-members = ["apps/capcut-editor"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+capcut-core = { path = "crates/core" }
+capcut-format = { path = "crates/capcut-format" }
+capcut-engine = { path = "crates/engine" }
+capcut-media = { path = "crates/media" }
+capcut-renderer = { path = "crates/renderer" }
+capcut-ui = { path = "crates/ui" }

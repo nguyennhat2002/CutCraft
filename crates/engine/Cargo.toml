@@ -1,0 +1,9 @@
+[package]
+name = "capcut-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+[dependencies]
+capcut-core.workspace = true
+capcut-format.workspace = true

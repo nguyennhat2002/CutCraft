@@ -1,0 +1,1 @@
+// Shared Vec2, Rect, and Transform math types will live here.
