@@ -7,11 +7,12 @@ use crate::app_state::AppState;
 use crate::config;
 use crate::editor_state::EditorSession;
 use crate::theme::Palette;
+use crate::widgets::timeline::clip_visuals::TimelineVisualCache;
 use crate::widgets::toolbar::TopBarAction;
 use crate::widgets::{export_dialog, inspector, media_pool, panel, preview, timeline, toolbar};
 use crate::workspace_layout;
 
-pub fn show(ui: &mut Ui, state: &mut AppState) {
+pub fn show(ui: &mut Ui, state: &mut AppState, timeline_visuals: &mut TimelineVisualCache) {
     let context = ui.ctx().clone();
 
     if !state.has_session() {
@@ -59,7 +60,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                     vec2(content.width(), timeline_height),
                 );
                 panel::show(ui, timeline_rect, Palette::PANEL_BG, |ui| {
-                    timeline::show(ui, session, shortcuts);
+                    timeline::show(ui, session, shortcuts, timeline_visuals);
                 });
             }
         }
@@ -218,7 +219,9 @@ mod tests {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, height))),
                 ..Default::default()
             };
-            let output = context.run_ui(input, |ui| show(ui, &mut state));
+            let output = context.run_ui(input, |ui| {
+                show(ui, &mut state, &mut TimelineVisualCache::default())
+            });
             let panels = rounded_panel_rects(&output);
             output.drop_without_applying_deltas();
 

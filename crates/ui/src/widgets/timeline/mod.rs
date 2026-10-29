@@ -2,6 +2,7 @@
 //! Import, drop, selection, and editing controls are deliberately disabled.
 
 pub mod clip_view;
+pub mod clip_visuals;
 pub mod playhead;
 pub mod scale;
 pub mod toolbar;
@@ -19,10 +20,11 @@ use crate::editor_state::EditorSession;
 use crate::shortcuts::ShortcutManager;
 use crate::theme::{Palette, Radii};
 use crate::timeline_state::{
-    TimelineContentState, TimelineDisplayMode, TimelineItemId, TimelineView,
+    ThumbnailMode, TimelineContentState, TimelineDisplayMode, TimelineItemId, TimelineView,
 };
 use crate::widgets::icons::{self, Icon, IconColors, IconSize};
 
+use self::clip_visuals::TimelineVisualCache;
 use self::scale::{format_ruler_label, TimelineScale};
 
 const INVITATION: &str = "Drag material here and start to create";
@@ -35,13 +37,21 @@ enum TimelineClick {
     Clear,
 }
 
-pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManager) {
+pub fn show(
+    ui: &mut Ui,
+    session: &mut EditorSession,
+    shortcuts: &ShortcutManager,
+    assets: &mut TimelineVisualCache,
+) {
     session.prune_timeline_selection();
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         session.timeline_pixels_per_second =
             TimelineScale::new(session.timeline_pixels_per_second, 0.0).pixels_per_second();
         toolbar::show(ui, session, shortcuts);
+        let demo = session.timeline_display_mode == TimelineDisplayMode::VisualDemo;
+        assets.set_demo(demo);
+        assets.begin_frame();
 
         let view = session.displayed_timeline();
         let pristine = view.content_state() == TimelineContentState::PristineEmpty;
@@ -78,7 +88,6 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
             (header_width + scale.x_for_seconds(display_end) + scale.leading_padding())
                 .min(1_000_000.0)
                 .max(available.x);
-        let demo = session.timeline_display_mode == TimelineDisplayMode::VisualDemo;
         let mut click = None;
         let output = ScrollArea::new([true, rows_height > body_height])
             .id_salt("timeline_scroll")
@@ -92,14 +101,28 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                 let visible = viewport
                     .translate(content.min.to_vec2())
                     .intersect(ui.clip_rect());
+                let hovered = ui
+                    .input(|input| input.pointer.hover_pos())
+                    .and_then(|position| {
+                        item_at(view, content, header_width, track_height, &scale, position)
+                    });
                 paint_content(
-                    ui,
-                    PaintedArea { content, visible },
-                    &scale,
-                    view,
-                    track_height,
-                    demo,
-                    session.timeline_selection(),
+                    PaintContext {
+                        ui,
+                        area: PaintedArea { content, visible },
+                        scale: &scale,
+                        view,
+                        track_height,
+                        selection: session.timeline_selection(),
+                        options: PaintOptions {
+                            demo,
+                            hovered,
+                            show_thumbnails: session.timeline_show_thumbnails,
+                            thumbnail_mode: session.timeline_thumbnail_mode,
+                            show_waveforms: session.timeline_show_waveforms,
+                        },
+                    },
+                    assets,
                 );
                 if response.clicked() {
                     if let Some(position) = response.interact_pointer_pos() {
@@ -116,6 +139,18 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                         );
                     }
                 }
+                if let Some(id) = hovered {
+                    if let Some(label) = view
+                        .tracks
+                        .get(id.track)
+                        .and_then(|track| track.items.get(id.item))
+                        .map(|item| item.label().to_owned())
+                    {
+                        let _ = response
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text(label);
+                    }
+                }
             });
         let offset = output.state.clamped_offset();
         session.timeline_scroll = [offset.x, offset.y];
@@ -127,6 +162,39 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
             None => {}
         }
     });
+}
+
+/// Resolve a clip under the pointer. Track headers and the ruler return none.
+fn item_at(
+    view: &TimelineView,
+    content: Rect,
+    header_width: f32,
+    track_height: f32,
+    scale: &TimelineScale,
+    position: Pos2,
+) -> Option<TimelineItemId> {
+    if position.x < content.left() + header_width
+        || position.y < content.top() + config::TIMELINE_RULER_HEIGHT
+    {
+        return None;
+    }
+    for (track_index, track) in view.tracks.iter().enumerate() {
+        let top = content.top() + config::TIMELINE_RULER_HEIGHT + track_height * track_index as f32;
+        let row = Rect::from_min_size(
+            pos2(content.left() + header_width, top),
+            vec2(content.width() - header_width, track_height),
+        );
+        for (item_index, item) in track.items.iter().enumerate() {
+            let clip_rect = clip_view::rect(row, scale, item);
+            if clip_rect.width() >= 2.0 && clip_rect.contains(position) {
+                return Some(TimelineItemId {
+                    track: track_index,
+                    item: item_index,
+                });
+            }
+        }
+    }
+    None
 }
 
 /// Resolve a click inside the scrollable content. Track headers and the ruler
@@ -150,24 +218,8 @@ fn click_target(
     if !body.contains(position) {
         return None;
     }
-    for (track_index, track) in view.tracks.iter().enumerate() {
-        let top = content.top() + config::TIMELINE_RULER_HEIGHT + track_height * track_index as f32;
-        let row = Rect::from_min_size(
-            pos2(body.left(), top),
-            vec2(content.width() - header_width, track_height),
-        );
-        for (item_index, item) in track.items.iter().enumerate() {
-            let clip_rect = clip_view::rect(row, scale, item);
-            if clip_rect.width() >= 2.0 && clip_rect.contains(position) {
-                return Some(TimelineClick::Select(
-                    TimelineItemId {
-                        track: track_index,
-                        item: item_index,
-                    },
-                    additive,
-                ));
-            }
-        }
+    if let Some(id) = item_at(view, content, header_width, track_height, scale, position) {
+        return Some(TimelineClick::Select(id, additive));
     }
     Some(TimelineClick::Clear)
 }
@@ -178,15 +230,35 @@ struct PaintedArea {
     visible: Rect,
 }
 
-fn paint_content(
-    ui: &Ui,
-    area: PaintedArea,
-    scale: &TimelineScale,
-    view: &TimelineView,
-    track_height: f32,
+#[derive(Debug, Clone, Copy)]
+struct PaintOptions {
     demo: bool,
-    selection: &BTreeSet<TimelineItemId>,
-) {
+    hovered: Option<TimelineItemId>,
+    show_thumbnails: bool,
+    thumbnail_mode: ThumbnailMode,
+    show_waveforms: bool,
+}
+
+struct PaintContext<'a> {
+    ui: &'a Ui,
+    area: PaintedArea,
+    scale: &'a TimelineScale,
+    view: &'a TimelineView,
+    track_height: f32,
+    selection: &'a BTreeSet<TimelineItemId>,
+    options: PaintOptions,
+}
+
+fn paint_content(context: PaintContext<'_>, assets: &mut TimelineVisualCache) {
+    let PaintContext {
+        ui,
+        area,
+        scale,
+        view,
+        track_height,
+        selection,
+        options,
+    } = context;
     let PaintedArea { content, visible } = area;
     let painter = ui.painter_at(visible);
     painter.rect_filled(visible, CornerRadius::ZERO, Palette::TRACK_BG);
@@ -238,17 +310,25 @@ fn paint_content(
                 track,
             );
             for (item_index, item) in track.items.iter().enumerate() {
+                let id = TimelineItemId {
+                    track: index,
+                    item: item_index,
+                };
                 clip_view::paint(
                     &body_painter,
                     row,
-                    scale,
-                    item,
-                    track.kind,
-                    demo,
-                    selection.contains(&TimelineItemId {
-                        track: index,
-                        item: item_index,
-                    }),
+                    clip_view::ClipPaint {
+                        scale,
+                        item,
+                        track_kind: track.kind,
+                        demo: options.demo,
+                        selected: selection.contains(&id),
+                        hovered: options.hovered == Some(id),
+                        show_thumbnails: options.show_thumbnails,
+                        thumbnail_mode: options.thumbnail_mode,
+                        show_waveforms: options.show_waveforms,
+                    },
+                    assets,
                 );
             }
         }
@@ -419,7 +499,12 @@ mod tests {
             crate::theme::configure(&context);
             let mut session = EditorSession::default();
             let output = context.run_ui(input(width, height), |ui| {
-                show(ui, &mut session, &ShortcutManager::default())
+                show(
+                    ui,
+                    &mut session,
+                    &ShortcutManager::default(),
+                    &mut TimelineVisualCache::default(),
+                )
             });
             let text = labels(&output);
             assert_eq!(
@@ -445,7 +530,12 @@ mod tests {
         let mut session = EditorSession::default();
         session.timeline_view.tracks.push(track("V7"));
         let output = context.run_ui(input(1000.0, 360.0), |ui| {
-            show(ui, &mut session, &ShortcutManager::default())
+            show(
+                ui,
+                &mut session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         });
         assert!(labels(&output).iter().any(|text| text == "V7"));
         assert!(!labels(&output).iter().any(|text| text == INVITATION));
@@ -456,7 +546,12 @@ mod tests {
         );
         let before = session.timeline_view.clone();
         let output = context.run_ui(input(1000.0, 360.0), |ui| {
-            show(ui, &mut session, &ShortcutManager::default())
+            show(
+                ui,
+                &mut session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         });
         let text = labels(&output);
         for expected in ["V7", "V8", "Supplied item"] {
@@ -475,7 +570,12 @@ mod tests {
         let before = session.timeline_view.clone();
         session.set_timeline_demo(true);
         let output = context.run_ui(input(1000.0, 360.0), |ui| {
-            show(ui, &mut session, &ShortcutManager::default())
+            show(
+                ui,
+                &mut session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         });
         assert!(labels(&output).iter().any(|text| text == "Demo title"));
         assert_eq!(session.timeline_view, before);
@@ -506,7 +606,12 @@ mod tests {
                 "not-imported.mp4",
             ))));
         let output = context.run_ui(dropped, |ui| {
-            show(ui, &mut session, &ShortcutManager::default())
+            show(
+                ui,
+                &mut session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         });
         assert!(session.timeline_view.tracks.is_empty());
         assert_eq!(session.timeline_display_mode, TimelineDisplayMode::Project);
@@ -520,12 +625,22 @@ mod tests {
         session.set_timeline_demo(true);
         session.timeline_scroll[0] = 900.0;
         let output = context.run_ui(input(1000.0, 360.0), |ui| {
-            show(ui, &mut session, &ShortcutManager::default())
+            show(
+                ui,
+                &mut session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         });
         output.drop_without_applying_deltas();
         let mut fresh = EditorSession::default();
         let output = context.run_ui(input(1000.0, 360.0), |ui| {
-            show(ui, &mut fresh, &ShortcutManager::default())
+            show(
+                ui,
+                &mut fresh,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         });
         assert_eq!(fresh.timeline_scroll, [0.0; 2]);
         assert!(labels(&output).iter().any(|text| text == "00:00"));
@@ -533,11 +648,44 @@ mod tests {
     }
 
     #[test]
+    fn selected_rich_demo_clip_paints_a_high_contrast_outline() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::default();
+        session.set_timeline_demo(true);
+        assert!(session.select_timeline_item(TimelineItemId { track: 2, item: 1 }, false));
+        let output = context.run_ui(input(1200.0, 420.0), |ui| {
+            show(
+                ui,
+                &mut session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
+        });
+        let outlined = output.shapes.iter().any(|clipped| match &clipped.shape {
+            Shape::Rect(rect) => {
+                rect.stroke.color == Palette::TEXT_PRIMARY && rect.stroke.width >= 2.0
+            }
+            _ => false,
+        });
+        output.drop_without_applying_deltas();
+        assert!(
+            outlined,
+            "selected clip should paint a high-contrast outline"
+        );
+    }
+
+    #[test]
     fn zero_playhead_and_invitation_align_at_the_canvas_leading_padding() {
         let context = egui::Context::default();
         let mut session = EditorSession::default();
         let output = context.run_ui(input(1000.0, 360.0), |ui| {
-            show(ui, &mut session, &ShortcutManager::default())
+            show(
+                ui,
+                &mut session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         });
         let playhead = output.shapes.iter().find_map(|clipped| {
             if let Shape::LineSegment { points, stroke } = &clipped.shape {
@@ -676,13 +824,25 @@ mod tests {
             ],
             ..Default::default()
         };
-        let output = context.run_ui(input, |ui| show(ui, session, &ShortcutManager::default()));
+        let output = context.run_ui(input, |ui| {
+            show(
+                ui,
+                session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
+        });
         output.drop_without_applying_deltas();
     }
 
     fn render_session(context: &egui::Context, session: &mut EditorSession) -> egui::FullOutput {
         context.run_ui(input(1000.0, 360.0), |ui| {
-            show(ui, session, &ShortcutManager::default())
+            show(
+                ui,
+                session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
         })
     }
 

@@ -1,12 +1,14 @@
 //! eframe application entry and native window configuration.
 
 use crate::shortcuts::{ShortcutManager, ShortcutStore};
+use crate::widgets::timeline::clip_visuals::TimelineVisualCache;
 use crate::{app_state::AppState, config, theme, widgets};
 
 /// The CutCraft desktop application.
 #[derive(Default)]
 pub struct CutCraftApp {
     state: AppState,
+    timeline_visuals: TimelineVisualCache,
 }
 
 impl CutCraftApp {
@@ -42,7 +44,7 @@ impl CutCraftApp {
             // one follow-up frame so it becomes visible without another input.
             context.request_repaint();
         }
-        widgets::layout::show_shell(ui, &mut self.state);
+        widgets::layout::show_shell(ui, &mut self.state, &mut self.timeline_visuals);
     }
 }
 
