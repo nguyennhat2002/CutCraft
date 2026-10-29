@@ -63,8 +63,14 @@ mod tests {
         }
     }
 
-    fn last_repaint_delay(context: &Context, app: &mut CutCraftApp, seconds: f64) -> Duration {
-        let output = context.run_ui(frame_input(1280.0, 800.0, seconds), |ui| app.draw(ui));
+    fn last_repaint_delay(
+        context: &Context,
+        app: &mut CutCraftApp,
+        seconds: f64,
+        width: f32,
+        height: f32,
+    ) -> Duration {
+        let output = context.run_ui(frame_input(width, height, seconds), |ui| app.draw(ui));
         let delay = output
             .viewport_output
             .get(&ViewportId::ROOT)
@@ -97,9 +103,12 @@ mod tests {
     }
 
     #[test]
-    fn minimum_window_leaves_room_for_every_panel() {
-        let side_panels = config::TOOLS_MIN_WIDTH + config::INSPECTOR_MIN_WIDTH;
-        assert!(config::WINDOW_MIN_WIDTH - side_panels >= 320.0);
+    fn minimum_window_leaves_room_for_the_workspace_and_timeline() {
+        let workspace_min = config::WORKSPACE_LEFT_MIN_WIDTH
+            + config::WORKSPACE_CENTER_MIN_WIDTH
+            + config::WORKSPACE_RIGHT_MIN_WIDTH
+            + config::WORKSPACE_SPLITTER_WIDTH * 2.0;
+        assert!(config::WINDOW_MIN_WIDTH >= workspace_min);
 
         let vertical_chrome = config::EDITOR_TOP_BAR_HEIGHT + config::STATUS_BAR_HEIGHT;
         assert!(config::WINDOW_MIN_HEIGHT - vertical_chrome - config::TIMELINE_MIN_HEIGHT >= 180.0);
@@ -111,7 +120,7 @@ mod tests {
         theme::configure(&context);
         let mut app = CutCraftApp::default();
 
-        for (width, height) in [(960.0, 600.0), (1280.0, 800.0), (1440.0, 900.0)] {
+        for (width, height) in [(960.0, 600.0), (1080.0, 720.0), (1600.0, 900.0)] {
             app.state.go_home();
             let output = context.run_ui(frame_input(width, height, 0.0), |ui| app.draw(ui));
             assert!(!output.shapes.is_empty(), "home produced no shapes");
@@ -146,13 +155,13 @@ mod tests {
         let mut app = CutCraftApp::default();
 
         for step in 0..8 {
-            let output = context.run_ui(frame_input(1280.0, 800.0, step as f64 / 60.0), |ui| {
+            let output = context.run_ui(frame_input(1600.0, 900.0, step as f64 / 60.0), |ui| {
                 app.draw(ui)
             });
             output.drop_without_applying_deltas();
         }
         assert_eq!(
-            last_repaint_delay(&context, &mut app, 8.0 / 60.0),
+            last_repaint_delay(&context, &mut app, 8.0 / 60.0, 1600.0, 900.0),
             Duration::MAX,
             "idle homepage must not run a continuous repaint loop"
         );
@@ -160,13 +169,13 @@ mod tests {
         app.state.create_temporary_project();
         for step in 0..12 {
             let output = context
-                .run_ui(frame_input(1280.0, 800.0, 1.0 + step as f64 / 60.0), |ui| {
+                .run_ui(frame_input(1600.0, 900.0, 1.0 + step as f64 / 60.0), |ui| {
                     app.draw(ui)
                 });
             output.drop_without_applying_deltas();
         }
         assert_eq!(
-            last_repaint_delay(&context, &mut app, 1.2),
+            last_repaint_delay(&context, &mut app, 1.2, 1600.0, 900.0),
             Duration::MAX,
             "idle editor must not run a continuous repaint loop"
         );
@@ -174,13 +183,13 @@ mod tests {
         app.state.open_export();
         for step in 0..30 {
             let output = context
-                .run_ui(frame_input(1280.0, 800.0, 2.0 + step as f64 / 60.0), |ui| {
+                .run_ui(frame_input(1600.0, 900.0, 2.0 + step as f64 / 60.0), |ui| {
                     app.draw(ui)
                 });
             output.drop_without_applying_deltas();
         }
         assert_eq!(
-            last_repaint_delay(&context, &mut app, 3.0),
+            last_repaint_delay(&context, &mut app, 3.0, 1600.0, 900.0),
             Duration::MAX,
             "idle export dialog must not run a continuous repaint loop"
         );

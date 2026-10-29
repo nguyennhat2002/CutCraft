@@ -76,11 +76,14 @@ Validation for the initial change:
 - a test that a stable idle frame requests no immediate or periodic repaint;
 - manual launch, resize, and close of `capcut-editor` on Windows.
 
-The subsequent M1 UI iteration added Home/Projects/Settings navigation, a
-temporary in-memory editor session, a tabbed library, aspect-aware preview, and
-a settings-only Export modal. That work remains inside `capcut-ui`/the
-application, adds no dependency, and does not change the engine or media
-boundaries. It is UI state only: no project is persisted, decoded, or encoded.
+The subsequent M1 UI iterations added Home/Projects/Settings navigation, a
+temporary in-memory editor session, nine category-specific library shells, a
+tabbed Inspector, aspect-aware preview, a large four-track timeline with zoom,
+and a settings-only Export modal. The M1.2 visual pass added a neutral
+charcoal/cyan design system and a 33/29/38 resizable workspace. All of this
+remains inside `capcut-ui`/the application, adds no dependency, and does not
+change the engine or media boundaries. It is UI state only: no project is
+persisted, decoded, or encoded.
 
 Rollback is limited to removing the two workspace dependencies, restoring the
 console `main.rs`, and deleting the UI shell modules. No persistent format or

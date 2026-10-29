@@ -60,6 +60,38 @@ impl ExportFrameRate {
     }
 }
 
+/// Container formats exposed by the UI. Only MP4 is currently supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    Mp4,
+}
+
+impl ExportFormat {
+    pub const ALL: [Self; 1] = [Self::Mp4];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mp4 => "MP4",
+        }
+    }
+}
+
+/// Video codecs exposed by the UI. Only H.264 is currently supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportCodec {
+    H264,
+}
+
+impl ExportCodec {
+    pub const ALL: [Self; 1] = [Self::H264];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::H264 => "H.264",
+        }
+    }
+}
+
 /// User-selectable bitrate intent. No numeric encoder bitrate is fabricated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BitratePreset {
@@ -114,6 +146,8 @@ pub struct ExportSettings {
     pub directory: String,
     pub resolution: ExportResolution,
     pub frame_rate: ExportFrameRate,
+    pub format: ExportFormat,
+    pub codec: ExportCodec,
     pub bitrate: BitratePreset,
     pub custom_bitrate_kbps: u32,
     pub include_audio: bool,
@@ -126,6 +160,8 @@ impl Default for ExportSettings {
             directory: String::new(),
             resolution: ExportResolution::P1080,
             frame_rate: ExportFrameRate::Fps30,
+            format: ExportFormat::Mp4,
+            codec: ExportCodec::H264,
             bitrate: BitratePreset::Recommended,
             custom_bitrate_kbps: 12_000,
             include_audio: true,
@@ -134,14 +170,17 @@ impl Default for ExportSettings {
 }
 
 impl ExportSettings {
-    /// Codec is fixed for this milestone.
     pub fn codec_label(&self) -> &'static str {
-        "H.264"
+        self.codec.label()
     }
 
-    /// Container is fixed for this milestone.
-    pub fn container_label(&self) -> &'static str {
-        "MP4"
+    pub fn format_label(&self) -> &'static str {
+        self.format.label()
+    }
+
+    /// Display-only color-space target for a future encoder.
+    pub fn color_space_label(&self) -> &'static str {
+        "Rec. 709 (SDR)"
     }
 
     /// Validate the form for a future encoder handoff.
@@ -256,6 +295,10 @@ mod tests {
         assert_eq!(ExportFrameRate::Fps60.label(), "60 fps");
         assert_eq!(BitratePreset::Higher.label(), "Higher");
         assert_eq!(ExportSettings::default().codec_label(), "H.264");
-        assert_eq!(ExportSettings::default().container_label(), "MP4");
+        assert_eq!(ExportSettings::default().format_label(), "MP4");
+        assert_eq!(
+            ExportSettings::default().color_space_label(),
+            "Rec. 709 (SDR)"
+        );
     }
 }

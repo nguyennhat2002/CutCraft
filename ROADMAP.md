@@ -50,9 +50,20 @@
 - [x] Implement the modal Export settings form (filename, folder, resolution, frame rate, H.264/MP4, bitrate preset, audio) with validation; Export remains disabled.
 - [x] Verify Home → Create Project → Editor, Editor → Home → Resume, Editor → Export → Cancel, and portrait preview selection on Windows.
 
+**M1.2 visual-fidelity iteration:**
+
+- [x] Rebalance the editor workspace to approximately 33% library / 29% preview / 38% inspector at 1600×900, with draggable splitters.
+- [x] Increase the timeline to roughly 40–45% of the window height, with four track rows, track-control icons, ruler hierarchy, horizontal scrolling, and working zoom controls.
+- [x] Add nine tool categories with category-specific library shells; keep unimplemented actions visibly disabled.
+- [x] Add a tabbed, control-dense Inspector (Video, Audio, Text, Animation, Basic) using reusable disabled controls.
+- [x] Redesign the homepage around a teal/cyan Create Project banner, feature cards, and a project section with search/view placeholders.
+- [x] Redesign the Export modal with grouped file/format/video/audio settings, format/codec selectors, color-space display, and disabled Export.
+- [x] Verify responsive rendering and navigation at 1600×900 and 1080×720 on Windows.
+- [ ] Compare captures directly with the four supplied reference screenshots. **BLOCKED:** the reference images were not available in the workspace or session.
+
 **Acceptance:** user can launch, resize, and close the app; panels remain usable; no blocking media operations or misleading playback controls.
 
-**M1 evidence (2026-10-29, Windows):** Home is the startup screen with no saved projects. Create Project enters a temporary Editor session; File → Back to Home and Resume editing retain session UI state. The Editor rendered at 1440×900 and 960×600 with all four inspector sections visible at the default size and scrollable at the minimum. The preview switched between 16:9 and 9:16 (1080×1920). The Export dialog rendered at 960×600 with all required settings; Export was disabled and Cancel returned to the Editor. Window close returned exit code 0. Automated `capcut-ui` tests cover navigation transitions, temporary-session preservation, export validation and persistence, aspect fitting, zero-time playhead, headless screen/modal rendering, and idle repaint behavior for Home, Editor, and Export. Media import, decoding, preview rendering, playback, timeline editing, persistence, and export encoding remain unimplemented.
+**M1 evidence (2026-10-29, Windows):** Home is the startup screen with no saved projects. Create Project enters a temporary Editor session; File → Back to Home and Resume editing retain session UI state. At 1600×900 the live editor rendered the target three-column proportions, a substantially expanded timeline, nine category tabs, four empty tracks, the tabbed inspector, and the redesigned Export modal; the same paths were checked at 1080×720. The preview switched between 16:9 and 9:16 (1080×1920). Cancel returned from Export to the Editor, and both window close and `cargo run -p capcut-editor` shutdown returned exit code 0. Automated `capcut-ui` tests (70 passing) cover navigation, temporary-session preservation, export validation/persistence, workspace geometry, aspect fitting, zero-time playhead, headless screen/modal rendering, and idle repaint behavior. The reference screenshots were unavailable, so reference similarity was not measured and no percentage-match claim is made. Media import, decoding, preview rendering, playback, timeline editing, persistence, and export encoding remain unimplemented.
 
 ### M2 — Native project and timeline model
 

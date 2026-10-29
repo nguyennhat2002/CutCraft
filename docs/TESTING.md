@@ -17,45 +17,62 @@ The existing `.github/workflows/ci.yml` runs formatting, Clippy and tests on Win
 
 For a focused edit, iterate with `cargo test -p <package>` or `cargo check -p <package>` and finish with the full applicable workspace checks. Avoid adding release/packaging gates to the required list until their implementations exist.
 
-### Current UI shell checks (M1)
+### Current UI shell checks (M1.2)
 
-Automated (`cargo test -p capcut-ui`):
+Automated (`cargo test -p capcut-ui`, 70 tests):
 
 - headless Home, Projects, Settings, Editor, and Export dialog rendering at
-  960×600, 1280×800, and 1440×900 as applicable;
+  960×600, 1080×720, and 1600×900 as applicable;
+- workspace geometry at the reference viewport (33/29/38 columns, usable center
+  at small widths) and timeline height ratios;
 - navigation transitions, temporary-session preservation, and Home/Resume behavior;
 - export setting validation and form persistence across dialog close/reopen;
 - window title, default size, minimum inner size, and resizability;
 - stable idle frames with **no** follow-up repaint for Home, Editor, and Export;
-- timeline zero-time playhead/label visibility regression;
-- timecode formatting, ruler tick/scale bounds, and 16:9/9:16 preview fitting;
-- status-notice behavior, About dialog, and disabled-action states.
+- timeline zoom clamping, zero-time playhead visibility, ruler/ticks, and 16:9/9:16 fitting;
+- category-specific library, tabbed inspector, dedicated controls, and disabled-action states.
 
 Manual Windows procedure:
 
 1. Run `cargo run -p capcut-editor` with no media present.
-2. Confirm the app starts on Home with no saved projects and a temporary-session caption.
-3. Use Create Project; confirm the Editor shows the project bar, library tabs,
-   Preview, Inspector, and Timeline.
-4. Toggle 16:9 and 9:16; confirm the canvas preserves aspect and the resolution
-   indicator updates (`1920×1080` / `1080×1920`).
-5. Use File → Back to Home, then Resume editing; confirm the same temporary
-   session card returns to the Editor.
-6. Open Export; confirm filename, folder, resolution, frame rate, H.264, MP4,
-   bitrate preset, and audio controls are present. Confirm Export is disabled and
+2. At approximately 1600×900, confirm Home shows the Create Project banner first,
+   feature cards second, and Recent projects underneath.
+3. Use Create Project; confirm the Editor shows nine tool categories, a center
+   monitor, a tabbed Inspector, and a timeline occupying roughly 40–45% of the
+   window height with four empty tracks.
+4. Confirm splitter handles, timeline zoom controls, disabled track controls,
+   disabled playback, and disabled editing actions are honest.
+5. Toggle 16:9 and 9:16; confirm the canvas preserves aspect.
+6. Use File → Back to Home, then Resume editing; confirm temporary-session state survives.
+7. Open Export; confirm output name/destination, format, codec, resolution,
+   frame rate, color space, bitrate, and audio. Confirm Export is disabled and
    no output size/progress is shown. Cancel and confirm the Editor returns.
-7. Resize between 960×600 and 1440×900; confirm no overlapping controls, panels
-   scroll where needed, and the zero-time playhead remains visible.
-8. Leave idle and confirm the process remains responsive.
+8. Resize to 1080×720 and back; confirm no overlaps, scroll areas work, and the
+   layout remains usable.
 9. Close with the window button; verify a normal exit.
 
-Result recorded 2026-10-29 on Windows: Home at startup, Create Project → Editor,
-Home → Resume, 16:9 → 9:16 (1080×1920), Export modal, and Cancel → Editor were
-verified. Editor and Export layouts were inspected at 1440×900 and 960×600, and
-window close returned exit code 0. Because the interactive desktop session was
-locked, window content was inspected with `PrintWindow`, and real buttons were
-invoked via Windows UI Automation. `File → Exit` was not separately clicked.
-CI on Linux/macOS was not run.
+Result recorded 2026-10-29 on Windows: Home, Editor, and Export were captured at
+1600×900 and verified at 1080×720. The Editor showed the target column
+proportions, nine category shells, four track rows, a full-height timeline
+workspace, and the tabbed Inspector; the Export modal, Cancel return, portrait
+preview, Home/Resume state preservation, and `cargo run -p capcut-editor` exit
+code 0 were verified. Because the interactive desktop was locked, captures used
+`PrintWindow` and real buttons were invoked with Windows UI Automation. The four
+supplied reference screenshots were not present in the workspace/session, so a
+direct pixel/visual similarity comparison and a 90% claim remain **unverified**.
+`File → Exit` was not separately clicked. CI on Linux/macOS was not run.
+
+Before/after findings from this iteration:
+
+- the preview was far too wide and the side panels too narrow; the new workspace
+  is 33% library / 29% preview / 38% inspector at 1600×900 with draggable splitters;
+- the timeline was too short; it now targets roughly 40–45% of the window height
+  and fills its workspace below four tracks;
+- Home lacked the target hierarchy; the Create banner now leads, followed by
+  feature cards and project management;
+- badges stretched in several layouts and were replaced with fixed painted pills;
+- the Inspector and tool panel were sparse; they now use dense tabbed controls and
+  nine category-specific shells.
 
 ## 2. Test pyramid
 
