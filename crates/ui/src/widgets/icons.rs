@@ -31,6 +31,12 @@ pub(crate) enum Icon {
     Redo,
     Grid,
     List,
+    Plus,
+    Select,
+    Split,
+    Delete,
+    Snap,
+    Link,
 }
 
 pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -429,6 +435,79 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 stroke,
             );
         }
+        Icon::Plus => {
+            painter.line_segment([area.center_top(), area.center_bottom()], stroke);
+            painter.line_segment([area.left_center(), area.right_center()], stroke);
+        }
+        Icon::Select => {
+            painter.add(Shape::closed_line(
+                vec![
+                    area.left_top(),
+                    pos2(area.left() + area.width() * 0.2, area.bottom()),
+                    area.center(),
+                    pos2(area.right(), area.center().y - area.height() * 0.1),
+                ],
+                thin,
+            ));
+        }
+        Icon::Split => {
+            for x in [area.left(), area.right()] {
+                let direction = if x == area.left() { 1.0 } else { -1.0 };
+                painter.line_segment([pos2(x, area.top()), pos2(x, area.bottom())], thin);
+                for y in [area.top(), area.bottom()] {
+                    painter.line_segment([pos2(x, y), pos2(x + direction * 3.0, y)], thin);
+                }
+            }
+            painter.line_segment([area.center_top(), area.center_bottom()], thin);
+        }
+        Icon::Delete => {
+            let bin = Rect::from_min_max(
+                pos2(area.left() + 2.0, area.top() + 3.0),
+                pos2(area.right() - 2.0, area.bottom()),
+            );
+            painter.rect_stroke(bin, CornerRadius::same(1), thin, StrokeKind::Inside);
+            painter.line_segment(
+                [pos2(area.left(), bin.top()), pos2(area.right(), bin.top())],
+                thin,
+            );
+            painter.line_segment(
+                [
+                    pos2(area.center().x - 2.0, area.top()),
+                    pos2(area.center().x + 2.0, area.top()),
+                ],
+                thin,
+            );
+        }
+        Icon::Snap => {
+            let left = pos2(area.left(), area.top());
+            let right = pos2(area.right(), area.top());
+            painter.add(Shape::line(
+                vec![left, area.left_bottom(), area.right_bottom(), right],
+                stroke,
+            ));
+            for x in [area.left(), area.right()] {
+                painter.line_segment(
+                    [
+                        pos2(x - 2.0, area.top() + 3.0),
+                        pos2(x + 2.0, area.top() + 3.0),
+                    ],
+                    thin,
+                );
+            }
+        }
+        Icon::Link => {
+            for x in [area.left(), area.center().x - 1.0] {
+                painter.rect_stroke(
+                    Rect::from_min_size(
+                        pos2(x, area.center().y - 3.0),
+                        vec2(area.width() * 0.55, 6.0),
+                    ),
+                    CornerRadius::same(2),
+                    thin,
+                    StrokeKind::Inside,
+                );
+            }
+        }
         Icon::Grid => {
             let gap = area.width() * 0.12;
             let cell = (area.width() - gap) * 0.5;
@@ -492,6 +571,12 @@ mod tests {
                 Icon::Redo,
                 Icon::Grid,
                 Icon::List,
+                Icon::Plus,
+                Icon::Select,
+                Icon::Split,
+                Icon::Delete,
+                Icon::Snap,
+                Icon::Link,
             ];
             for icon in icons {
                 let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::hover());

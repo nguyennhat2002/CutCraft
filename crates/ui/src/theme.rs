@@ -47,7 +47,9 @@ impl Palette {
     pub const ACCENT_DIM: Color32 = Color32::from_rgb(0x00, 0x54, 0x5c);
     pub const ACCENT_BG: Color32 = Color32::from_rgb(0x10, 0x3b, 0x40);
     pub const ON_ACCENT: Color32 = Color32::from_rgb(0x00, 0x27, 0x2b);
-    pub const PLAYHEAD: Color32 = Color32::from_rgb(0xff, 0x4f, 0x5b);
+    pub const PLAYHEAD: Color32 = Color32::from_rgb(0x68, 0x68, 0x6b);
+    pub const TIMELINE_DROP_BG: Color32 = Color32::from_rgb(0x2a, 0x2a, 0x2a);
+    pub const TIMELINE_DROP_BORDER: Color32 = Color32::from_rgb(0x3e, 0x3e, 0x40);
     pub const CANVAS: Color32 = Color32::from_rgb(0x00, 0x00, 0x00);
 
     pub const WIDGET_BG: Color32 = Color32::from_rgb(0x34, 0x34, 0x37);

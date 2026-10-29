@@ -11,6 +11,7 @@ pub mod export_settings;
 pub mod shortcuts;
 pub mod theme;
 pub mod timecode;
+pub mod timeline_state;
 pub mod widgets;
 pub mod workspace_layout;
 

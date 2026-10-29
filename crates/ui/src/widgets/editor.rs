@@ -38,7 +38,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                     Frame::new()
                         .fill(Palette::PANEL_BG)
                         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-                        .inner_margin(Margin::symmetric(10, 6)),
+                        .inner_margin(Margin::ZERO),
                 )
                 .show(ui, |ui| timeline::show(ui, session));
         }
