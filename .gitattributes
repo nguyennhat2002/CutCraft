@@ -1,0 +1,25 @@
+
+# Normalize text files in Git
+* text=auto
+
+# Rust and project configuration: always LF
+*.rs     text eol=lf
+*.toml   text eol=lf
+*.md     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.wgsl   text eol=lf
+*.sh     text eol=lf
+
+# Windows scripts
+*.ps1    text eol=crlf
+
+# Binary assets
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.ico    binary
+*.mp4    binary
+*.wav    binary
+*.ttf    binary
+*.otf    binary

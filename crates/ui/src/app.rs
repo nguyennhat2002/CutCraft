@@ -1,0 +1,188 @@
+//! eframe application entry and native window configuration.
+
+use crate::{app_state::AppState, config, theme, widgets};
+
+/// The CutCraft desktop application.
+#[derive(Default)]
+pub struct CutCraftApp {
+    state: AppState,
+}
+
+impl CutCraftApp {
+    /// Create the application and install the dark editor theme once.
+    pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
+        theme::configure(&creation_context.egui_ctx);
+        Self::default()
+    }
+
+    /// Draw one frame of the active screen.
+    ///
+    /// Kept separate from the `eframe::App` impl so headless tests can drive it
+    /// without creating a native window.
+    pub fn draw(&mut self, ui: &mut egui::Ui) {
+        widgets::layout::show_shell(ui, &mut self.state);
+    }
+}
+
+impl eframe::App for CutCraftApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
+    }
+}
+
+/// Native window configuration for the desktop application.
+///
+/// The minimum size keeps the library, preview, inspector, and timeline usable
+/// at 960×600. The UI is event-driven; nothing requests a periodic repaint.
+pub fn native_options() -> eframe::NativeOptions {
+    eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title(config::APP_NAME)
+            .with_inner_size([config::WINDOW_DEFAULT_WIDTH, config::WINDOW_DEFAULT_HEIGHT])
+            .with_min_inner_size([config::WINDOW_MIN_WIDTH, config::WINDOW_MIN_HEIGHT])
+            .with_resizable(true),
+        centered: true,
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use egui::{Context, Pos2, Rect, Vec2, ViewportId};
+
+    use super::*;
+    use crate::app_state::Screen;
+
+    fn frame_input(width: f32, height: f32, seconds: f64) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, height))),
+            time: Some(seconds),
+            ..Default::default()
+        }
+    }
+
+    fn last_repaint_delay(context: &Context, app: &mut CutCraftApp, seconds: f64) -> Duration {
+        let output = context.run_ui(frame_input(1280.0, 800.0, seconds), |ui| app.draw(ui));
+        let delay = output
+            .viewport_output
+            .get(&ViewportId::ROOT)
+            .map_or(Duration::ZERO, |viewport| viewport.repaint_delay);
+        output.drop_without_applying_deltas();
+        delay
+    }
+
+    #[test]
+    fn native_options_define_title_minimums_and_resizability() {
+        let options = native_options();
+
+        assert_eq!(options.viewport.title.as_deref(), Some("CutCraft"));
+        assert_eq!(
+            options.viewport.inner_size,
+            Some(Vec2::new(
+                config::WINDOW_DEFAULT_WIDTH,
+                config::WINDOW_DEFAULT_HEIGHT
+            ))
+        );
+        assert_eq!(
+            options.viewport.min_inner_size,
+            Some(Vec2::new(
+                config::WINDOW_MIN_WIDTH,
+                config::WINDOW_MIN_HEIGHT
+            ))
+        );
+        assert_eq!(options.viewport.resizable, Some(true));
+        assert!(options.centered);
+    }
+
+    #[test]
+    fn minimum_window_leaves_room_for_every_panel() {
+        let side_panels = config::TOOLS_MIN_WIDTH + config::INSPECTOR_MIN_WIDTH;
+        assert!(config::WINDOW_MIN_WIDTH - side_panels >= 320.0);
+
+        let vertical_chrome = config::EDITOR_TOP_BAR_HEIGHT + config::STATUS_BAR_HEIGHT;
+        assert!(config::WINDOW_MIN_HEIGHT - vertical_chrome - config::TIMELINE_MIN_HEIGHT >= 180.0);
+    }
+
+    #[test]
+    fn application_starts_on_home_and_renders_every_screen_headlessly() {
+        let context = Context::default();
+        theme::configure(&context);
+        let mut app = CutCraftApp::default();
+
+        for (width, height) in [(960.0, 600.0), (1280.0, 800.0), (1440.0, 900.0)] {
+            app.state.go_home();
+            let output = context.run_ui(frame_input(width, height, 0.0), |ui| app.draw(ui));
+            assert!(!output.shapes.is_empty(), "home produced no shapes");
+            output.drop_without_applying_deltas();
+
+            app.state.create_temporary_project();
+            assert_eq!(app.state.screen(), Screen::Editor);
+            let output = context.run_ui(frame_input(width, height, 0.1), |ui| app.draw(ui));
+            assert!(!output.shapes.is_empty(), "editor produced no shapes");
+            output.drop_without_applying_deltas();
+
+            app.state.open_export();
+            for step in 0..3 {
+                let output = context
+                    .run_ui(frame_input(width, height, 0.2 + step as f64 * 0.1), |ui| {
+                        app.draw(ui)
+                    });
+                assert!(
+                    !output.shapes.is_empty(),
+                    "export dialog produced no shapes"
+                );
+                output.drop_without_applying_deltas();
+            }
+            app.state.close_export();
+        }
+    }
+
+    #[test]
+    fn stable_home_and_editor_do_not_request_continuous_repaints() {
+        let context = Context::default();
+        theme::configure(&context);
+        let mut app = CutCraftApp::default();
+
+        for step in 0..8 {
+            let output = context.run_ui(frame_input(1280.0, 800.0, step as f64 / 60.0), |ui| {
+                app.draw(ui)
+            });
+            output.drop_without_applying_deltas();
+        }
+        assert_eq!(
+            last_repaint_delay(&context, &mut app, 8.0 / 60.0),
+            Duration::MAX,
+            "idle homepage must not run a continuous repaint loop"
+        );
+
+        app.state.create_temporary_project();
+        for step in 0..12 {
+            let output = context
+                .run_ui(frame_input(1280.0, 800.0, 1.0 + step as f64 / 60.0), |ui| {
+                    app.draw(ui)
+                });
+            output.drop_without_applying_deltas();
+        }
+        assert_eq!(
+            last_repaint_delay(&context, &mut app, 1.2),
+            Duration::MAX,
+            "idle editor must not run a continuous repaint loop"
+        );
+
+        app.state.open_export();
+        for step in 0..30 {
+            let output = context
+                .run_ui(frame_input(1280.0, 800.0, 2.0 + step as f64 / 60.0), |ui| {
+                    app.draw(ui)
+                });
+            output.drop_without_applying_deltas();
+        }
+        assert_eq!(
+            last_repaint_delay(&context, &mut app, 3.0),
+            Duration::MAX,
+            "idle export dialog must not run a continuous repaint loop"
+        );
+    }
+}
