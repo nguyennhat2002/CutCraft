@@ -1,11 +1,11 @@
 //! Small shared shell widgets: headings, badges, empty states, and rows.
 
 use egui::{
-    vec2, Color32, CornerRadius, CursorIcon, FontId, Frame, Margin, Response, RichText, Sense,
-    Stroke, StrokeKind, Ui,
+    vec2, Color32, CornerRadius, CursorIcon, FontId, Frame, Margin, Rect, Response, RichText,
+    Sense, Stroke, StrokeKind, Ui,
 };
 
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::widgets::icons::{self, Icon};
 
 /// Uppercase muted section label used at the top of each panel.
@@ -28,10 +28,10 @@ pub fn badge(ui: &mut Ui, text: &str, color: Color32) -> Response {
     let size = galley.size() + vec2(10.0, 5.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter()
-        .rect_filled(rect, CornerRadius::same(3), Palette::WIDGET_BG);
+        .rect_filled(rect, Radii::SMALL, Palette::WIDGET_BG);
     ui.painter().rect_stroke(
         rect,
-        CornerRadius::same(3),
+        Radii::SMALL,
         Stroke::new(1.0, color.gamma_multiply(0.55)),
         StrokeKind::Inside,
     );
@@ -56,19 +56,30 @@ pub fn disabled_action_button(ui: &mut Ui, label: &str, hint: &str) -> Response 
 
 /// Teal primary action button used on the homepage and editor top bar.
 pub fn primary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
-    ui.add(
-        egui::Button::new(
-            RichText::new(label)
-                .size(13.0)
-                .strong()
-                .color(Palette::ON_ACCENT),
+    let response = ui
+        .add(
+            egui::Button::new(
+                RichText::new(label)
+                    .size(13.0)
+                    .strong()
+                    .color(Palette::ON_ACCENT),
+            )
+            .fill(Palette::ACCENT)
+            .stroke(Stroke::NONE)
+            .corner_radius(Radii::CONTROL)
+            .min_size(vec2(min_width, 34.0)),
         )
-        .fill(Palette::ACCENT)
-        .stroke(Stroke::NONE)
-        .corner_radius(CornerRadius::same(7))
-        .min_size(vec2(min_width, 34.0)),
-    )
-    .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_cursor(CursorIcon::PointingHand);
+    let rect = response.rect;
+    if response.is_pointer_button_down_on() {
+        ui.painter()
+            .rect_filled(rect, Radii::CONTROL, Color32::from_black_alpha(20));
+    } else if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, Radii::CONTROL, Color32::from_white_alpha(12));
+    }
+    focus_ring_colored(ui, &response, rect, Radii::CONTROL, Palette::ON_ACCENT);
+    response
 }
 
 /// Compact bordered empty state for narrow side panels.
@@ -76,7 +87,7 @@ pub fn compact_empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str) {
     Frame::new()
         .fill(Palette::TRACK_BG)
         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(8))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(12))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -105,7 +116,7 @@ pub fn disabled_icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response 
     let hovered = response.hovered();
     if hovered {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(4), Palette::WIDGET_BG);
+            .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_BG);
     }
     icons::paint(
         ui.painter(),
@@ -127,10 +138,14 @@ pub fn disabled_icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response 
 pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
     let hovered = response.hovered();
-    if hovered {
+    if response.is_pointer_button_down_on() {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(5), Palette::WIDGET_BG);
+            .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_ACTIVE);
+    } else if hovered {
+        ui.painter()
+            .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_BG);
     }
+    focus_ring(ui, &response, rect, Radii::CONTROL);
     icons::paint(
         ui.painter(),
         rect.shrink(6.0),
@@ -145,4 +160,27 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
     response
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text(tooltip)
+}
+
+/// Draw a subtle keyboard-focus ring for custom-painted controls.
+pub fn focus_ring(ui: &Ui, response: &Response, rect: Rect, radius: CornerRadius) {
+    focus_ring_colored(ui, response, rect, radius, Palette::ACCENT_LIGHT);
+}
+
+/// Focus ring variant for filled primary surfaces.
+pub fn focus_ring_colored(
+    ui: &Ui,
+    response: &Response,
+    rect: Rect,
+    radius: CornerRadius,
+    color: Color32,
+) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect.shrink(1.0),
+            radius,
+            Stroke::new(1.0, color),
+            StrokeKind::Inside,
+        );
+    }
 }

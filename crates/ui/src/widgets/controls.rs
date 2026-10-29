@@ -4,11 +4,11 @@
 //! consistent dimensions and chrome so the panels read as a professional tool.
 
 use egui::{
-    pos2, vec2, Color32, CornerRadius, CursorIcon, FontId, Frame, Label, Margin, Response,
-    RichText, Sense, Stroke, StrokeKind, Ui,
+    pos2, vec2, Color32, CursorIcon, FontId, Frame, Label, Margin, Response, RichText, Sense,
+    Stroke, StrokeKind, Ui,
 };
 
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::widgets::common;
 
 /// Disabled dropdown-shaped control used in place of a real ComboBox.
@@ -99,7 +99,7 @@ pub fn alignment_grid(ui: &mut Ui, selected: usize) -> Response {
         let cell_rect = egui::Rect::from_min_size(min, vec2(cell, cell));
         painter.rect_filled(
             cell_rect,
-            CornerRadius::same(2),
+            Radii::SMALL,
             if index == selected {
                 Palette::ACCENT_DIM
             } else {
@@ -108,7 +108,7 @@ pub fn alignment_grid(ui: &mut Ui, selected: usize) -> Response {
         );
         painter.rect_stroke(
             cell_rect,
-            CornerRadius::same(2),
+            Radii::SMALL,
             Stroke::new(1.0, Palette::BORDER_SUBTLE),
             StrokeKind::Inside,
         );
@@ -130,10 +130,10 @@ pub fn alignment_grid(ui: &mut Ui, selected: usize) -> Response {
 /// Disabled color swatch with a neutral placeholder value.
 pub fn color_swatch(ui: &mut Ui, color: Color32) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-    ui.painter().rect_filled(rect, CornerRadius::same(3), color);
+    ui.painter().rect_filled(rect, Radii::SMALL, color);
     ui.painter().rect_stroke(
         rect,
-        CornerRadius::same(3),
+        Radii::SMALL,
         Stroke::new(1.0, Palette::BORDER),
         StrokeKind::Inside,
     );
@@ -156,7 +156,7 @@ pub fn section_card(ui: &mut Ui, title: &str, add_contents: impl FnOnce(&mut Ui)
     Frame::new()
         .fill(Palette::CARD_BG)
         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(5))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(10))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -168,10 +168,10 @@ pub fn section_card(ui: &mut Ui, title: &str, add_contents: impl FnOnce(&mut Ui)
 
 fn paint_field(ui: &Ui, rect: egui::Rect) {
     ui.painter()
-        .rect_filled(rect, CornerRadius::same(4), Palette::WIDGET_BG);
+        .rect_filled(rect, Radii::CONTROL, Palette::WIDGET_BG);
     ui.painter().rect_stroke(
         rect,
-        CornerRadius::same(4),
+        Radii::CONTROL,
         Stroke::new(1.0, Palette::BORDER_SUBTLE),
         StrokeKind::Inside,
     );

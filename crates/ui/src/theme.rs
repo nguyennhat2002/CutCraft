@@ -34,8 +34,8 @@ impl Palette {
     pub const HOME_BORDER: Color32 = Color32::from_rgb(0x20, 0x30, 0x34);
     pub const MODAL_BG: Color32 = Color32::from_rgb(0x26, 0x26, 0x26);
 
-    pub const BORDER: Color32 = Color32::from_rgb(0x26, 0x26, 0x26);
-    pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(0x22, 0x22, 0x22);
+    pub const BORDER: Color32 = Color32::from_rgb(0x38, 0x38, 0x3b);
+    pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(0x2e, 0x2e, 0x30);
 
     pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(0xf0, 0xf0, 0xf0);
     pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xb0, 0xb0, 0xb4);
@@ -58,6 +58,22 @@ impl Palette {
     pub const WARNING: Color32 = Color32::from_rgb(0xe5, 0xa8, 0x48);
     pub const ERROR: Color32 = Color32::from_rgb(0xf0, 0x65, 0x65);
     pub const SUCCESS: Color32 = Color32::from_rgb(0x38, 0xd3, 0x9f);
+}
+
+/// Shared corner radii for the CutCraft desktop shell.
+pub struct Radii;
+
+impl Radii {
+    /// Small chips, badges, and compact inline elements.
+    pub const SMALL: CornerRadius = CornerRadius::same(3);
+    /// Standard buttons, fields, dropdowns, and tabs.
+    pub const CONTROL: CornerRadius = CornerRadius::same(5);
+    /// Sections, tiles, and standard cards.
+    pub const CARD: CornerRadius = CornerRadius::same(8);
+    /// Large feature and creative-suite cards.
+    pub const LARGE_CARD: CornerRadius = CornerRadius::same(10);
+    /// Modal and window containers.
+    pub const DIALOG: CornerRadius = CornerRadius::same(12);
 }
 
 /// Force the dark CutCraft theme and install compact desktop spacing.
@@ -105,8 +121,8 @@ fn dark_visuals() -> Visuals {
     visuals.extreme_bg_color = Palette::APP_BG;
     visuals.faint_bg_color = Palette::WIDGET_BG;
     visuals.window_stroke = Stroke::new(1.0, Palette::BORDER);
-    visuals.window_corner_radius = CornerRadius::same(5);
-    visuals.menu_corner_radius = CornerRadius::same(4);
+    visuals.window_corner_radius = Radii::DIALOG;
+    visuals.menu_corner_radius = Radii::CONTROL;
     visuals.hyperlink_color = Palette::ACCENT;
     visuals.selection.bg_fill = Palette::ACCENT_DIM;
     visuals.selection.stroke = Stroke::new(1.0, Palette::ACCENT);
@@ -115,25 +131,25 @@ fn dark_visuals() -> Visuals {
     visuals.widgets.noninteractive.weak_bg_fill = Palette::PANEL_BG;
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Palette::BORDER_SUBTLE);
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, Palette::TEXT_PRIMARY);
-    visuals.widgets.noninteractive.corner_radius = CornerRadius::same(3);
+    visuals.widgets.noninteractive.corner_radius = Radii::SMALL;
 
     visuals.widgets.inactive.bg_fill = Palette::WIDGET_BG;
     visuals.widgets.inactive.weak_bg_fill = Palette::WIDGET_BG;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, Palette::BORDER);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, Palette::BORDER_SUBTLE);
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, Palette::TEXT_PRIMARY);
-    visuals.widgets.inactive.corner_radius = CornerRadius::same(3);
+    visuals.widgets.inactive.corner_radius = Radii::CONTROL;
 
     visuals.widgets.hovered.bg_fill = Palette::WIDGET_HOVER;
     visuals.widgets.hovered.weak_bg_fill = Palette::WIDGET_HOVER;
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, Palette::ACCENT_DIM);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, Palette::BORDER);
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, Palette::TEXT_PRIMARY);
-    visuals.widgets.hovered.corner_radius = CornerRadius::same(3);
+    visuals.widgets.hovered.corner_radius = Radii::CONTROL;
 
     visuals.widgets.active.bg_fill = Palette::WIDGET_ACTIVE;
     visuals.widgets.active.weak_bg_fill = Palette::WIDGET_ACTIVE;
     visuals.widgets.active.bg_stroke = Stroke::new(1.0, Palette::ACCENT);
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, Palette::TEXT_PRIMARY);
-    visuals.widgets.active.corner_radius = CornerRadius::same(3);
+    visuals.widgets.active.corner_radius = Radii::CONTROL;
 
     visuals.widgets.open = visuals.widgets.active;
     visuals.disabled_alpha = 0.55;
@@ -172,5 +188,78 @@ mod tests {
     fn accent_matches_reference_cyan() {
         assert_eq!(Palette::ACCENT, Color32::from_rgb(0x00, 0xc1, 0xcd));
         assert!(Palette::ACCENT.b() > Palette::ACCENT.r());
+    }
+
+    #[test]
+    fn themed_interactive_widgets_share_the_standard_control_radius() {
+        let context = Context::default();
+        configure(&context);
+        let style = context.style_of(Theme::Dark);
+
+        assert_eq!(
+            style.visuals.widgets.inactive.corner_radius,
+            CornerRadius::same(5)
+        );
+        assert_eq!(
+            style.visuals.widgets.hovered.corner_radius,
+            CornerRadius::same(5)
+        );
+        assert_eq!(
+            style.visuals.widgets.active.corner_radius,
+            CornerRadius::same(5)
+        );
+        assert_eq!(
+            style.visuals.widgets.open.corner_radius,
+            CornerRadius::same(5)
+        );
+    }
+
+    #[test]
+    fn themed_windows_and_menus_use_the_dialog_scale_radii() {
+        let context = Context::default();
+        configure(&context);
+        let style = context.style_of(Theme::Dark);
+
+        assert_eq!(style.visuals.window_corner_radius, CornerRadius::same(12));
+        assert_eq!(style.visuals.menu_corner_radius, CornerRadius::same(5));
+    }
+
+    #[test]
+    fn radius_tokens_follow_the_design_scale() {
+        assert_eq!(Radii::SMALL, CornerRadius::same(3));
+        assert_eq!(Radii::CONTROL, CornerRadius::same(5));
+        assert_eq!(Radii::CARD, CornerRadius::same(8));
+        assert_eq!(Radii::LARGE_CARD, CornerRadius::same(10));
+        assert_eq!(Radii::DIALOG, CornerRadius::same(12));
+    }
+
+    #[test]
+    fn interactive_states_are_distinct_and_neutral_until_active() {
+        let context = Context::default();
+        configure(&context);
+        let visuals = &context.style_of(Theme::Dark).visuals;
+
+        assert_ne!(
+            visuals.widgets.inactive.bg_fill,
+            visuals.widgets.hovered.bg_fill
+        );
+        assert_ne!(
+            visuals.widgets.hovered.bg_fill,
+            visuals.widgets.active.bg_fill
+        );
+        assert_eq!(
+            visuals.widgets.inactive.bg_stroke,
+            Stroke::new(1.0, Palette::BORDER_SUBTLE)
+        );
+        assert_eq!(
+            visuals.widgets.hovered.bg_stroke,
+            Stroke::new(1.0, Palette::BORDER)
+        );
+        assert_eq!(
+            visuals.widgets.active.bg_stroke,
+            Stroke::new(1.0, Palette::ACCENT)
+        );
+        assert_eq!(visuals.selection.stroke, Stroke::new(1.0, Palette::ACCENT));
+        assert!(visuals.disabled_alpha < 1.0);
     }
 }

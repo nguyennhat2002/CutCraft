@@ -9,8 +9,9 @@ use egui::{
 };
 
 use crate::editor_state::{EditorSession, EditorTool};
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::widgets::common;
+use crate::widgets::common::focus_ring;
 use crate::widgets::controls;
 use crate::widgets::icons::{self, Icon};
 
@@ -156,7 +157,7 @@ fn text_body(ui: &mut Ui) {
     Frame::new()
         .fill(Palette::CARD_BG)
         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(5))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(14))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -254,10 +255,10 @@ fn caption_nav(ui: &mut Ui) {
             ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
         if selected {
             ui.painter()
-                .rect_filled(rect, CornerRadius::same(3), Palette::ACCENT_BG);
+                .rect_filled(rect, Radii::CONTROL, Palette::ACCENT_BG);
             ui.painter().rect_filled(
                 Rect::from_min_size(rect.min, vec2(2.0, rect.height())),
-                CornerRadius::same(1),
+                CornerRadius::ZERO,
                 Palette::ACCENT,
             );
         }
@@ -348,7 +349,7 @@ fn locked_tile(ui: &mut Ui, width: f32, icon: Icon, label: &str) {
     Frame::new()
         .fill(Palette::CARD_BG)
         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(4))
+        .corner_radius(Radii::CONTROL)
         .inner_margin(Margin::same(8))
         .show(ui, |ui| {
             ui.set_min_size(vec2(width - 16.0, 64.0));
@@ -374,12 +375,15 @@ fn category_tab(ui: &mut Ui, tool: EditorTool, selected: bool) -> Response {
                 pos2(rect.left() + 9.0, rect.bottom() - 2.0),
                 pos2(rect.right() - 9.0, rect.bottom()),
             ),
-            CornerRadius::same(1),
+            CornerRadius::ZERO,
             Palette::ACCENT,
         );
+    } else if response.is_pointer_button_down_on() {
+        painter.rect_filled(rect, Radii::SMALL, Palette::WIDGET_ACTIVE);
     } else if hovered {
-        painter.rect_filled(rect, CornerRadius::same(3), Palette::WIDGET_BG);
+        painter.rect_filled(rect, Radii::SMALL, Palette::WIDGET_BG);
     }
+    focus_ring(ui, &response, rect.shrink(1.0), Radii::SMALL);
 
     let icon_rect =
         Rect::from_center_size(pos2(rect.center().x, rect.top() + 12.0), vec2(14.0, 14.0));
@@ -461,7 +465,7 @@ fn media_grid_empty(ui: &mut Ui) {
     Frame::new()
         .fill(Palette::APP_BG)
         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(5))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(10))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -486,10 +490,10 @@ fn media_grid_empty(ui: &mut Ui) {
                         ),
                         vec2(tile_width, tile_height),
                     );
-                    painter.rect_filled(tile, CornerRadius::same(4), Palette::CARD_BG);
+                    painter.rect_filled(tile, Radii::CONTROL, Palette::CARD_BG);
                     painter.rect_stroke(
                         tile,
-                        CornerRadius::same(4),
+                        Radii::CONTROL,
                         Stroke::new(1.0, Palette::BORDER_SUBTLE),
                         StrokeKind::Inside,
                     );
@@ -503,12 +507,12 @@ fn media_grid_empty(ui: &mut Ui) {
                 Rect::from_center_size(rect.center(), vec2((rect.width() - 32.0).min(280.0), 76.0));
             painter.rect_filled(
                 overlay,
-                CornerRadius::same(5),
+                Radii::CONTROL,
                 Color32::from_rgba_unmultiplied(24, 24, 25, 240),
             );
             painter.rect_stroke(
                 overlay,
-                CornerRadius::same(5),
+                Radii::CONTROL,
                 Stroke::new(1.0, Palette::BORDER),
                 StrokeKind::Inside,
             );
@@ -532,10 +536,10 @@ fn media_grid_empty(ui: &mut Ui) {
 fn waveform_placeholder(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 76.0), Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::same(4), Palette::APP_BG);
+    painter.rect_filled(rect, Radii::CONTROL, Palette::APP_BG);
     painter.rect_stroke(
         rect,
-        CornerRadius::same(4),
+        Radii::CONTROL,
         Stroke::new(1.0, Palette::BORDER_SUBTLE),
         StrokeKind::Inside,
     );

@@ -11,8 +11,9 @@ use egui::{
 
 use crate::config;
 use crate::editor_state::{CaptionAlignment, CaptionCase, CaptionTab, EditorSession, InspectorTab};
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::widgets::common;
+use crate::widgets::common::focus_ring;
 use crate::widgets::controls;
 use crate::widgets::icons::{self, Icon};
 
@@ -64,13 +65,25 @@ fn tab_strip(ui: &mut Ui, session: &mut EditorSession) {
         );
         let selected = session.inspector_tab == *tab;
 
-        if response.hovered() && !selected {
+        if response.is_pointer_button_down_on() && !selected {
             ui.painter().rect_filled(
                 tab_rect.shrink2(vec2(2.0, 5.0)),
-                CornerRadius::same(3),
+                Radii::SMALL,
+                Palette::WIDGET_ACTIVE,
+            );
+        } else if response.hovered() && !selected {
+            ui.painter().rect_filled(
+                tab_rect.shrink2(vec2(2.0, 5.0)),
+                Radii::SMALL,
                 Palette::WIDGET_BG,
             );
         }
+        focus_ring(
+            ui,
+            &response,
+            tab_rect.shrink2(vec2(2.0, 4.0)),
+            Radii::SMALL,
+        );
         ui.painter().text(
             tab_rect.center() - vec2(0.0, 2.0),
             Align2::CENTER_CENTER,
@@ -88,7 +101,7 @@ fn tab_strip(ui: &mut Ui, session: &mut EditorSession) {
                     pos2(tab_rect.left() + 10.0, tab_rect.bottom() - 2.0),
                     vec2((tab_rect.width() - 20.0).max(8.0), 2.0),
                 ),
-                CornerRadius::same(1),
+                CornerRadius::ZERO,
                 Palette::ACCENT,
             );
         }
@@ -153,7 +166,7 @@ fn captions_properties(ui: &mut Ui, session: &mut EditorSession) {
 fn caption_tabs(ui: &mut Ui, session: &mut EditorSession) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
     ui.painter()
-        .rect_filled(rect, CornerRadius::same(4), Palette::TRACK_BG);
+        .rect_filled(rect, Radii::CONTROL, Palette::TRACK_BG);
     let count = CaptionTab::ALL.len() as f32;
     let width = rect.width() / count;
     for (index, tab) in CaptionTab::ALL.iter().enumerate() {
@@ -167,19 +180,17 @@ fn caption_tabs(ui: &mut Ui, session: &mut EditorSession) {
             Sense::click(),
         );
         let selected = session.caption_tab == *tab;
-        if selected {
-            ui.painter().rect_filled(
-                seg_rect.shrink(2.0),
-                CornerRadius::same(3),
-                Palette::WIDGET_BG,
-            );
+        if response.is_pointer_button_down_on() {
+            ui.painter()
+                .rect_filled(seg_rect.shrink(2.0), Radii::SMALL, Palette::WIDGET_ACTIVE);
+        } else if selected {
+            ui.painter()
+                .rect_filled(seg_rect.shrink(2.0), Radii::SMALL, Palette::WIDGET_BG);
         } else if response.hovered() {
-            ui.painter().rect_filled(
-                seg_rect.shrink(2.0),
-                CornerRadius::same(3),
-                Palette::CARD_HOVER,
-            );
+            ui.painter()
+                .rect_filled(seg_rect.shrink(2.0), Radii::SMALL, Palette::CARD_HOVER);
         }
+        focus_ring(ui, &response, seg_rect.shrink(1.0), Radii::SMALL);
         ui.painter().text(
             seg_rect.center(),
             Align2::CENTER_CENTER,
@@ -323,13 +334,16 @@ fn style_tiles(ui: &mut Ui, session: &mut EditorSession) {
                 let (rect, response) =
                     ui.allocate_exact_size(vec2(tile_width, 42.0), Sense::click());
                 let hovered = response.hovered();
+                let pressed = response.is_pointer_button_down_on();
                 let active = index == selected;
                 let painter = ui.painter();
                 painter.rect_filled(
                     rect,
-                    CornerRadius::same(4),
+                    Radii::CONTROL,
                     if active {
                         Palette::ACCENT_BG
+                    } else if pressed {
+                        Palette::WIDGET_ACTIVE
                     } else if hovered {
                         Palette::CARD_HOVER
                     } else {
@@ -338,17 +352,20 @@ fn style_tiles(ui: &mut Ui, session: &mut EditorSession) {
                 );
                 painter.rect_stroke(
                     rect,
-                    CornerRadius::same(4),
+                    Radii::CONTROL,
                     Stroke::new(
                         1.0,
                         if active {
                             Palette::ACCENT
+                        } else if hovered {
+                            Palette::BORDER
                         } else {
                             Palette::BORDER_SUBTLE
                         },
                     ),
                     StrokeKind::Inside,
                 );
+                focus_ring(ui, &response, rect.shrink(1.0), Radii::CONTROL);
                 let family = if index >= 4 {
                     FontFamily::Monospace
                 } else {
@@ -384,7 +401,7 @@ fn caption_placeholder(ui: &mut Ui, icon: Icon, title: &str, body: &str) {
     Frame::new()
         .fill(Palette::TRACK_BG)
         .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(CornerRadius::same(5))
+        .corner_radius(Radii::CARD)
         .inner_margin(Margin::same(14))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -427,9 +444,21 @@ fn checkbox_row(ui: &mut Ui, label: &str, checked: &mut bool) -> egui::Response 
     let box_rect =
         Rect::from_center_size(pos2(rect.left() + 8.0, rect.center().y), vec2(13.0, 13.0));
     let painter = ui.painter();
+    if response.hovered() {
+        painter.rect_filled(
+            rect.shrink(1.0),
+            Radii::SMALL,
+            if response.is_pointer_button_down_on() {
+                Palette::WIDGET_ACTIVE
+            } else {
+                Palette::WIDGET_BG
+            },
+        );
+    }
+    focus_ring(ui, &response, rect.shrink(1.0), Radii::SMALL);
     painter.rect_filled(
         box_rect,
-        CornerRadius::same(3),
+        Radii::SMALL,
         if *checked {
             Palette::ACCENT
         } else {
@@ -438,7 +467,7 @@ fn checkbox_row(ui: &mut Ui, label: &str, checked: &mut bool) -> egui::Response 
     );
     painter.rect_stroke(
         box_rect,
-        CornerRadius::same(3),
+        Radii::SMALL,
         Stroke::new(
             1.0,
             if *checked {
@@ -480,50 +509,18 @@ fn checkbox_row(ui: &mut Ui, label: &str, checked: &mut bool) -> egui::Response 
 }
 
 fn style_toggle(ui: &mut Ui, text: RichText, selected: bool) -> egui::Response {
-    let button = egui::Button::new(text.size(11.5).color(if selected {
-        Palette::ACCENT_LIGHT
-    } else {
-        Palette::TEXT_SECONDARY
-    }))
-    .fill(if selected {
-        Palette::ACCENT_BG
-    } else {
-        Palette::WIDGET_BG
-    })
-    .stroke(Stroke::new(
-        1.0,
-        if selected {
-            Palette::ACCENT
-        } else {
-            Palette::BORDER_SUBTLE
-        },
-    ))
-    .corner_radius(CornerRadius::same(3))
-    .min_size(vec2(28.0, 22.0));
+    let button = egui::Button::new(text.size(11.5))
+        .selected(selected)
+        .corner_radius(Radii::SMALL)
+        .min_size(vec2(28.0, 22.0));
     ui.add(button).on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn case_toggle(ui: &mut Ui, case: CaptionCase, selected: bool) -> egui::Response {
-    let button = egui::Button::new(RichText::new(case.label()).size(10.5).color(if selected {
-        Palette::ACCENT_LIGHT
-    } else {
-        Palette::TEXT_SECONDARY
-    }))
-    .fill(if selected {
-        Palette::ACCENT_BG
-    } else {
-        Palette::WIDGET_BG
-    })
-    .stroke(Stroke::new(
-        1.0,
-        if selected {
-            Palette::ACCENT
-        } else {
-            Palette::BORDER_SUBTLE
-        },
-    ))
-    .corner_radius(CornerRadius::same(3))
-    .min_size(vec2(30.0, 22.0));
+    let button = egui::Button::new(RichText::new(case.label()).size(10.5))
+        .selected(selected)
+        .corner_radius(Radii::SMALL)
+        .min_size(vec2(30.0, 22.0));
     ui.add(button).on_hover_cursor(CursorIcon::PointingHand)
 }
 
@@ -532,9 +529,11 @@ fn alignment_button(ui: &mut Ui, alignment: CaptionAlignment, selected: bool) ->
     let painter = ui.painter();
     painter.rect_filled(
         rect,
-        CornerRadius::same(3),
+        Radii::SMALL,
         if selected {
             Palette::ACCENT_BG
+        } else if response.is_pointer_button_down_on() {
+            Palette::WIDGET_ACTIVE
         } else if response.hovered() {
             Palette::WIDGET_HOVER
         } else {
@@ -543,17 +542,20 @@ fn alignment_button(ui: &mut Ui, alignment: CaptionAlignment, selected: bool) ->
     );
     painter.rect_stroke(
         rect,
-        CornerRadius::same(3),
+        Radii::SMALL,
         Stroke::new(
             1.0,
             if selected {
                 Palette::ACCENT
+            } else if response.hovered() {
+                Palette::BORDER
             } else {
                 Palette::BORDER_SUBTLE
             },
         ),
         StrokeKind::Inside,
     );
+    focus_ring(ui, &response, rect.shrink(1.0), Radii::SMALL);
     let color = if selected {
         Palette::ACCENT_LIGHT
     } else {

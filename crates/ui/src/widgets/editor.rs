@@ -2,7 +2,8 @@
 //! expandable timeline, and the export modal.
 
 use egui::{
-    pos2, vec2, Align, Color32, CursorIcon, Frame, Layout, Margin, Panel, Sense, Stroke, Ui,
+    pos2, vec2, Align, Color32, CornerRadius, CursorIcon, Frame, Layout, Margin, Panel, Sense,
+    Stroke, Ui,
 };
 
 use crate::app_state::AppState;
@@ -151,7 +152,8 @@ fn splitter(ui: &mut Ui, height: f32, fraction: &mut f32, is_left: bool, content
     let active = response.hovered() || response.dragged();
 
     if active {
-        ui.painter().rect_filled(rect, 0.0, Palette::ACCENT_BG);
+        ui.painter()
+            .rect_filled(rect, CornerRadius::ZERO, Palette::ACCENT_BG);
     }
     ui.painter().line_segment(
         [

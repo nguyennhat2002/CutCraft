@@ -14,7 +14,7 @@ use egui::{
 
 use crate::config;
 use crate::editor_state::EditorSession;
-use crate::theme::Palette;
+use crate::theme::{Palette, Radii};
 use crate::widgets::common;
 use crate::widgets::icons::{self, Icon};
 
@@ -141,11 +141,11 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
 
 fn paint_track_headers(ui: &Ui, rect: Rect, track_height: f32) {
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::same(3), Palette::TRACK_HEADER_BG);
+    painter.rect_filled(rect, CornerRadius::ZERO, Palette::TRACK_HEADER_BG);
 
     let ruler_rect =
         Rect::from_min_size(rect.min, vec2(rect.width(), config::TIMELINE_RULER_HEIGHT));
-    painter.rect_filled(ruler_rect, CornerRadius::same(3), Palette::RULER_BG);
+    painter.rect_filled(ruler_rect, CornerRadius::ZERO, Palette::RULER_BG);
     painter.text(
         pos2(rect.left() + 12.0, ruler_rect.center().y),
         Align2::LEFT_CENTER,
@@ -232,11 +232,11 @@ fn paint_timeline_content(
     track_height: f32,
 ) {
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, CornerRadius::same(3), Palette::TRACK_BG);
+    painter.rect_filled(rect, CornerRadius::ZERO, Palette::TRACK_BG);
 
     let ruler_rect =
         Rect::from_min_size(rect.min, vec2(rect.width(), config::TIMELINE_RULER_HEIGHT));
-    painter.rect_filled(ruler_rect, CornerRadius::same(3), Palette::RULER_BG);
+    painter.rect_filled(ruler_rect, CornerRadius::ZERO, Palette::RULER_BG);
 
     for (index, track) in track_view::tracks().iter().enumerate() {
         let row = track_row_rect(rect, index, track_height);
@@ -393,16 +393,16 @@ fn paint_demo_clips(painter: &egui::Painter, rect: Rect, scale: &TimelineScale, 
                 Palette::ACCENT_LIGHT,
             )
         };
-        painter.rect_filled(clip_rect, CornerRadius::same(3), fill);
+        painter.rect_filled(clip_rect, Radii::SMALL, fill);
         painter.rect_stroke(
             clip_rect,
-            CornerRadius::same(3),
+            Radii::SMALL,
             Stroke::new(1.0, border),
             egui::StrokeKind::Inside,
         );
         painter.rect_filled(
             Rect::from_min_size(clip_rect.min, vec2(clip_rect.width(), 2.0)),
-            CornerRadius::same(1),
+            CornerRadius::ZERO,
             border,
         );
         if clip_rect.width() > 42.0 {
@@ -419,11 +419,7 @@ fn paint_demo_clips(painter: &egui::Painter, rect: Rect, scale: &TimelineScale, 
                 pos2(clip_rect.right() - 42.0, clip_rect.top() + 5.0),
                 vec2(37.0, 13.0),
             );
-            painter.rect_filled(
-                badge,
-                CornerRadius::same(2),
-                egui::Color32::from_black_alpha(70),
-            );
+            painter.rect_filled(badge, Radii::SMALL, egui::Color32::from_black_alpha(70));
             painter.text(
                 badge.center(),
                 Align2::CENTER_CENTER,
