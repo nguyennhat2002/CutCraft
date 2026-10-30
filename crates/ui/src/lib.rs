@@ -14,5 +14,6 @@ pub mod timecode;
 pub mod timeline_state;
 pub mod widgets;
 pub mod workspace_layout;
+pub mod workspace_preferences;
 
 pub use app::{native_options, CutCraftApp};

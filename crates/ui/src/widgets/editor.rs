@@ -37,11 +37,33 @@ pub fn show(ui: &mut Ui, state: &mut AppState, timeline_visuals: &mut TimelineVi
             area.max - vec2(margin, margin),
         );
         if content.width() > 1.0 && content.height() > 1.0 {
-            let heights = workspace_layout::timeline_heights(available.y);
+            let initial_height = if session.timeline_visible {
+                workspace_layout::timeline_height(
+                    available.y,
+                    content.height(),
+                    session.timeline_height_fraction,
+                )
+            } else {
+                0.0
+            };
+            let initial_workspace_height = (content.height()
+                - initial_height
+                - if session.timeline_visible { gap } else { 0.0 })
+            .max(1.0);
+            if session.timeline_visible && initial_height > 1.0 {
+                let splitter_rect = Rect::from_min_size(
+                    pos2(content.left(), content.top() + initial_workspace_height),
+                    vec2(content.width(), gap),
+                );
+                timeline_splitter(ui, splitter_rect, session, available.y, content.height());
+            }
+
             let timeline_height = if session.timeline_visible {
-                heights
-                    .default
-                    .min((content.height() - gap - 80.0).max(0.0))
+                workspace_layout::timeline_height(
+                    available.y,
+                    content.height(),
+                    session.timeline_height_fraction,
+                )
             } else {
                 0.0
             };
@@ -152,6 +174,61 @@ fn add_panel(ui: &mut Ui, rect: Rect, add_contents: impl FnOnce(&mut Ui)) {
     panel::show(ui, rect, Palette::PANEL_BG, add_contents);
 }
 
+fn timeline_splitter(
+    ui: &mut Ui,
+    rect: Rect,
+    session: &mut EditorSession,
+    available_height: f32,
+    content_height: f32,
+) {
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return;
+    }
+    let response = ui
+        .interact(
+            rect,
+            ui.scope_id().with("timeline_splitter"),
+            Sense::click_and_drag(),
+        )
+        .on_hover_cursor(CursorIcon::ResizeVertical);
+
+    if response.hovered() || response.dragged() {
+        ui.painter().line_segment(
+            [
+                pos2(rect.left() + 8.0, rect.center().y),
+                pos2(rect.right() - 8.0, rect.center().y),
+            ],
+            Stroke::new(2.0, Palette::ACCENT),
+        );
+    }
+
+    if response.double_clicked() {
+        session.set_timeline_height_fraction(None);
+        session.request_layout_save();
+        return;
+    }
+
+    if response.dragged() {
+        let delta = -response.drag_delta().y;
+        if delta.is_finite() && delta != 0.0 && available_height > 1.0 {
+            let heights = workspace_layout::timeline_heights(available_height, content_height);
+            let current = workspace_layout::timeline_height(
+                available_height,
+                content_height,
+                session.timeline_height_fraction,
+            );
+            let next = (current + delta).clamp(heights.min, heights.max);
+            if (next - current).abs() > f32::EPSILON {
+                session.set_timeline_height_fraction(Some(next / available_height));
+            }
+        }
+    }
+
+    if response.drag_stopped() {
+        session.request_layout_save();
+    }
+}
+
 fn splitter(ui: &mut Ui, rect: Rect, fraction: &mut f32, is_left: bool, content_width: f32) {
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
@@ -190,7 +267,373 @@ fn splitter(ui: &mut Ui, rect: Rect, fraction: &mut f32, is_left: bool, content_
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::timeline_state::{TimelineItemId, TimelineItemView, TimelineTrackView, TrackKind};
     use egui::{Pos2, Rect};
+
+    fn frame_input(width: f32, height: f32, time: f64, events: Vec<egui::Event>) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, height))),
+            time: Some(time),
+            events,
+            ..Default::default()
+        }
+    }
+
+    fn run_editor_frame(
+        context: &egui::Context,
+        state: &mut AppState,
+        input: egui::RawInput,
+    ) -> egui::FullOutput {
+        context.run_ui(input, |ui| {
+            show(ui, state, &mut TimelineVisualCache::default())
+        })
+    }
+
+    fn splitter_position(output: &egui::FullOutput, width: f32) -> Pos2 {
+        let panels = rounded_panel_rects(output);
+        let timeline = *panels
+            .iter()
+            .max_by(|a, b| a.top().total_cmp(&b.top()))
+            .expect("timeline panel");
+        let upper_bottom = panels
+            .iter()
+            .filter(|rect| **rect != timeline)
+            .map(Rect::bottom)
+            .fold(0.0, f32::max);
+        pos2(width * 0.5, (upper_bottom + timeline.top()) * 0.5)
+    }
+
+    fn selectable_session() -> AppState {
+        let mut state = AppState::default();
+        state.create_temporary_project();
+        let session = state.session_mut().expect("session");
+        session.timeline_pixels_per_second = 42.0;
+        session.timeline_view.tracks = vec![TimelineTrackView {
+            label: "V1".to_owned(),
+            name: "Video".to_owned(),
+            kind: TrackKind::Video,
+            items: vec![TimelineItemView::new("Clip", 1.0, 4.0).expect("item")],
+        }];
+        assert!(session.select_timeline_item(TimelineItemId { track: 0, item: 0 }, false));
+        state
+    }
+
+    #[test]
+    fn dragging_splitter_resizes_without_touching_selection_or_zoom() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut state = selectable_session();
+        let (width, height) = (1600.0, 900.0);
+
+        let first = run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(width, height, 0.0, vec![]),
+        );
+        let splitter = splitter_position(&first, width);
+        let initial_height = rounded_panel_rects(&first)
+            .iter()
+            .max_by(|a, b| a.top().total_cmp(&b.top()))
+            .expect("timeline")
+            .height();
+        first.drop_without_applying_deltas();
+
+        let pressed = splitter;
+        let dragged = pos2(splitter.x, splitter.y - 90.0);
+        run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(width, height, 0.1, vec![egui::Event::PointerMoved(pressed)]),
+        )
+        .drop_without_applying_deltas();
+        run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(
+                width,
+                height,
+                0.2,
+                vec![egui::Event::PointerButton {
+                    pos: pressed,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            ),
+        )
+        .drop_without_applying_deltas();
+        run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(width, height, 0.3, vec![egui::Event::PointerMoved(dragged)]),
+        )
+        .drop_without_applying_deltas();
+        let released = run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(
+                width,
+                height,
+                0.4,
+                vec![egui::Event::PointerButton {
+                    pos: dragged,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            ),
+        );
+
+        let panels = rounded_panel_rects(&released);
+        let final_height = panels
+            .iter()
+            .max_by(|a, b| a.top().total_cmp(&b.top()))
+            .expect("timeline")
+            .height();
+        released.drop_without_applying_deltas();
+
+        assert!(
+            final_height > initial_height + 60.0,
+            "timeline should grow after dragging up: {initial_height} -> {final_height}"
+        );
+        let session = state.session().expect("session");
+        assert_eq!(session.timeline_pixels_per_second, 42.0);
+        assert!(session.timeline_height_fraction.is_some());
+        assert!(session.is_timeline_item_selected(TimelineItemId { track: 0, item: 0 }));
+        assert!(
+            state
+                .session_mut()
+                .expect("session")
+                .take_layout_save_request(),
+            "drag release must request persistence"
+        );
+    }
+
+    #[test]
+    fn splitter_drags_down_to_restore_a_smaller_timeline() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut state = selectable_session();
+        state
+            .session_mut()
+            .expect("session")
+            .set_timeline_height_fraction(Some(0.70));
+        let (width, height) = (1600.0, 900.0);
+
+        let first = run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(width, height, 0.0, vec![]),
+        );
+        let splitter = splitter_position(&first, width);
+        let initial_height = rounded_panel_rects(&first)
+            .iter()
+            .max_by(|a, b| a.top().total_cmp(&b.top()))
+            .expect("timeline")
+            .height();
+        first.drop_without_applying_deltas();
+
+        let pressed = splitter;
+        let dragged = pos2(splitter.x, splitter.y + 60.0);
+        run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(width, height, 0.1, vec![egui::Event::PointerMoved(pressed)]),
+        )
+        .drop_without_applying_deltas();
+        run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(
+                width,
+                height,
+                0.2,
+                vec![egui::Event::PointerButton {
+                    pos: pressed,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            ),
+        )
+        .drop_without_applying_deltas();
+        run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(width, height, 0.3, vec![egui::Event::PointerMoved(dragged)]),
+        )
+        .drop_without_applying_deltas();
+        let released = run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(
+                width,
+                height,
+                0.4,
+                vec![egui::Event::PointerButton {
+                    pos: dragged,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            ),
+        );
+
+        let final_height = rounded_panel_rects(&released)
+            .iter()
+            .max_by(|a, b| a.top().total_cmp(&b.top()))
+            .expect("timeline")
+            .height();
+        released.drop_without_applying_deltas();
+
+        assert!(
+            final_height < initial_height - 40.0,
+            "timeline should shrink after dragging down: {initial_height} -> {final_height}"
+        );
+    }
+
+    #[test]
+    fn double_clicking_splitter_restores_the_default_height() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut state = selectable_session();
+        state
+            .session_mut()
+            .expect("session")
+            .set_timeline_height_fraction(Some(0.70));
+        let (width, height) = (1600.0, 900.0);
+
+        let first = run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(width, height, 0.0, vec![]),
+        );
+        let splitter = splitter_position(&first, width);
+        first.drop_without_applying_deltas();
+
+        for (index, time) in [0.2, 0.35].into_iter().enumerate() {
+            let events = vec![
+                egui::Event::PointerMoved(splitter),
+                egui::Event::PointerButton {
+                    pos: splitter,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: splitter,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ];
+            run_editor_frame(
+                &context,
+                &mut state,
+                frame_input(width, height, 0.1 + time + index as f64 * 0.01, events),
+            )
+            .drop_without_applying_deltas();
+        }
+
+        assert_eq!(
+            state.session().expect("session").timeline_height_fraction,
+            None,
+            "double-click must restore the responsive default"
+        );
+        assert!(state
+            .session_mut()
+            .expect("session")
+            .take_layout_save_request());
+    }
+
+    fn timeline_and_upper_rects(output: &egui::FullOutput) -> (Rect, Vec<Rect>) {
+        let panels = rounded_panel_rects(output);
+        let timeline = *panels
+            .iter()
+            .max_by(|a, b| a.top().total_cmp(&b.top()))
+            .expect("timeline");
+        let mut upper: Vec<Rect> = panels
+            .iter()
+            .copied()
+            .filter(|rect| *rect != timeline)
+            .collect();
+        upper.sort_by(|a, b| a.left().total_cmp(&b.left()));
+        (timeline, upper)
+    }
+
+    #[test]
+    fn maximum_timeline_height_keeps_the_upper_workspace_visible() {
+        for (width, height) in [(960.0, 600.0), (1600.0, 900.0)] {
+            let context = egui::Context::default();
+            crate::theme::configure(&context);
+            let mut state = selectable_session();
+            state
+                .session_mut()
+                .expect("session")
+                .set_timeline_height_fraction(Some(0.99));
+
+            let output = run_editor_frame(
+                &context,
+                &mut state,
+                frame_input(width, height, 0.0, vec![]),
+            );
+            let (timeline, upper) = timeline_and_upper_rects(&output);
+            output.drop_without_applying_deltas();
+
+            assert!(timeline.top() >= 0.0 && timeline.bottom() <= height);
+            assert!(timeline.height() > 0.0);
+            assert_eq!(upper.len(), 3);
+            for panel in &upper {
+                assert!(
+                    panel.height() >= 179.5,
+                    "upper workspace collapsed at {width}x{height}: {panel:?}"
+                );
+                assert!(panel.top() >= 0.0 && panel.bottom() <= height);
+            }
+            assert!(
+                (5.0..=7.0).contains(&(timeline.top() - upper[0].bottom())),
+                "splitter gap must remain visible at maximum height"
+            );
+        }
+    }
+
+    #[test]
+    fn timeline_height_reflows_when_the_window_is_resized() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut state = selectable_session();
+        state
+            .session_mut()
+            .expect("session")
+            .set_timeline_height_fraction(Some(0.70));
+
+        let reference = run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(1600.0, 900.0, 0.0, vec![]),
+        );
+        let reference_height = timeline_and_upper_rects(&reference).0.height();
+        reference.drop_without_applying_deltas();
+
+        let compact =
+            run_editor_frame(&context, &mut state, frame_input(960.0, 600.0, 0.1, vec![]));
+        let (compact_timeline, compact_upper) = timeline_and_upper_rects(&compact);
+        compact.drop_without_applying_deltas();
+        assert!(compact_timeline.height() < reference_height);
+        assert!(compact_upper[0].height() >= 179.5);
+
+        let restored = run_editor_frame(
+            &context,
+            &mut state,
+            frame_input(1600.0, 900.0, 0.2, vec![]),
+        );
+        let restored_height = timeline_and_upper_rects(&restored).0.height();
+        restored.drop_without_applying_deltas();
+        assert!(
+            (restored_height - reference_height).abs() < 0.5,
+            "the same preference must restore the same height: {restored_height} vs {reference_height}"
+        );
+    }
 
     fn rounded_panel_rects(output: &egui::FullOutput) -> Vec<Rect> {
         output

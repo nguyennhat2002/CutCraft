@@ -41,11 +41,14 @@ pub const WORKSPACE_CENTER_MIN_WIDTH: f32 = 280.0;
 pub const WORKSPACE_LEFT_MAX_FRACTION: f32 = 0.45;
 pub const WORKSPACE_RIGHT_MAX_FRACTION: f32 = 0.50;
 
-/// Timeline bottom panel bounds. The actual default height is proportional to
-/// the available window height.
+/// Timeline bottom panel bounds. The default height is proportional to the
+/// available window height, capped at the reference height. The maximum is
+/// derived from the space left above the minimum usable workspace.
 pub const TIMELINE_DEFAULT_HEIGHT: f32 = 400.0;
+pub const TIMELINE_DEFAULT_FRACTION: f32 = 0.48;
 pub const TIMELINE_MIN_HEIGHT: f32 = 280.0;
-pub const TIMELINE_MAX_HEIGHT: f32 = 460.0;
+/// Minimum height reserved for the upper workspace when the timeline grows.
+pub const WORKSPACE_MIN_TOP_HEIGHT: f32 = 180.0;
 
 /// Maximum content width for the homepage workspace.
 pub const HOME_CONTENT_MAX_WIDTH: f32 = 1320.0;

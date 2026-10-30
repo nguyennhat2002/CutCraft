@@ -2,6 +2,7 @@
 
 use crate::shortcuts::{ShortcutManager, ShortcutStore};
 use crate::widgets::timeline::clip_visuals::TimelineVisualCache;
+use crate::workspace_preferences::{WorkspacePreferences, WorkspaceStore};
 use crate::{app_state::AppState, config, theme, widgets};
 
 /// The CutCraft desktop application.
@@ -28,6 +29,24 @@ impl CutCraftApp {
                 "Shortcut settings can be changed for this session but cannot be saved on this system.",
             );
         }
+
+        let workspace_store = WorkspaceStore::user_default();
+        let (workspace_preferences, workspace_warning) = match &workspace_store {
+            Some(store) => match store.load() {
+                Ok(Some(preferences)) => (preferences, None),
+                Ok(None) => (WorkspacePreferences::default(), None),
+                Err(error) => (
+                    WorkspacePreferences::default(),
+                    Some(format!("Workspace layout could not be loaded: {error}")),
+                ),
+            },
+            None => (WorkspacePreferences::default(), None),
+        };
+        app.state
+            .install_workspace_preferences(workspace_preferences, workspace_store);
+        if let Some(warning) = workspace_warning {
+            app.state.report_warning(warning);
+        }
         app
     }
 
@@ -45,6 +64,7 @@ impl CutCraftApp {
             context.request_repaint();
         }
         widgets::layout::show_shell(ui, &mut self.state, &mut self.timeline_visuals);
+        self.state.persist_workspace_layout_if_requested();
     }
 }
 
@@ -216,6 +236,41 @@ mod tests {
             Duration::MAX,
             "idle export dialog must not run a continuous repaint loop"
         );
+    }
+
+    #[test]
+    fn draw_persists_a_requested_timeline_height() {
+        let dir = std::env::temp_dir().join(format!("cutcraft-app-persist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp");
+        let store = crate::workspace_preferences::WorkspaceStore::new(dir.join("workspace.json"));
+        let context = Context::default();
+        theme::configure(&context);
+        let mut app = CutCraftApp::default();
+        app.state.install_workspace_preferences(
+            crate::workspace_preferences::WorkspacePreferences::default(),
+            Some(store.clone()),
+        );
+        app.state.create_temporary_project();
+        app.state
+            .session_mut()
+            .expect("session")
+            .set_timeline_height_fraction(Some(0.66));
+        app.state
+            .session_mut()
+            .expect("session")
+            .request_layout_save();
+
+        let output = context.run_ui(frame_input(1600.0, 900.0, 0.0), |ui| app.draw(ui));
+        output.drop_without_applying_deltas();
+
+        assert_eq!(
+            store.load().expect("load").expect("preferences"),
+            crate::workspace_preferences::WorkspacePreferences {
+                timeline_height_fraction: Some(0.66)
+            }
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -220,6 +220,9 @@ pub struct EditorSession {
     pub timeline_show_waveforms: bool,
     pub left_panel_fraction: f32,
     pub right_panel_fraction: f32,
+    /// `None` uses the responsive default; `Some` preserves the user's height.
+    pub timeline_height_fraction: Option<f32>,
+    pub(crate) layout_save_requested: bool,
 }
 
 impl Default for EditorSession {
@@ -258,6 +261,8 @@ impl Default for EditorSession {
             timeline_show_waveforms: true,
             left_panel_fraction: config::WORKSPACE_LEFT_FRACTION,
             right_panel_fraction: config::WORKSPACE_RIGHT_FRACTION,
+            timeline_height_fraction: None,
+            layout_save_requested: false,
         }
     }
 }
@@ -353,12 +358,28 @@ impl EditorSession {
         self.timeline_linked_selection = !self.timeline_linked_selection;
     }
 
+    pub fn set_timeline_height_fraction(&mut self, fraction: Option<f32>) {
+        self.timeline_height_fraction = fraction
+            .map(|value| value.clamp(0.0, 1.0))
+            .filter(|value| value.is_finite());
+    }
+
+    pub fn request_layout_save(&mut self) {
+        self.layout_save_requested = true;
+    }
+
+    pub fn take_layout_save_request(&mut self) -> bool {
+        std::mem::take(&mut self.layout_save_requested)
+    }
+
     pub fn reset_layout(&mut self) {
         self.tools_visible = true;
         self.inspector_visible = true;
         self.timeline_visible = true;
         self.left_panel_fraction = config::WORKSPACE_LEFT_FRACTION;
         self.right_panel_fraction = config::WORKSPACE_RIGHT_FRACTION;
+        self.timeline_height_fraction = None;
+        self.request_layout_save();
     }
 
     pub fn zoom_timeline_in(&mut self) {
@@ -457,6 +478,48 @@ mod tests {
             session.right_panel_fraction,
             config::WORKSPACE_RIGHT_FRACTION
         );
+    }
+
+    #[test]
+    fn timeline_height_defaults_to_auto_and_reset_restores_it() {
+        let mut session = EditorSession::default();
+        assert_eq!(session.timeline_height_fraction, None);
+
+        session.set_timeline_height_fraction(Some(0.62));
+        assert_eq!(session.timeline_height_fraction, Some(0.62));
+
+        session.reset_layout();
+
+        assert_eq!(session.timeline_height_fraction, None);
+        assert!(
+            session.take_layout_save_request(),
+            "reset must persist the restored height"
+        );
+        assert!(!session.take_layout_save_request());
+    }
+
+    #[test]
+    fn invalid_timeline_height_fraction_falls_back_to_auto() {
+        let mut session = EditorSession::default();
+        session.set_timeline_height_fraction(Some(f32::NAN));
+        assert_eq!(session.timeline_height_fraction, None);
+
+        session.set_timeline_height_fraction(Some(1.5));
+        assert_eq!(session.timeline_height_fraction, Some(1.0));
+    }
+
+    #[test]
+    fn timeline_height_changes_do_not_touch_zoom_or_selection() {
+        let mut session = populated_session();
+        session.timeline_pixels_per_second = 42.0;
+        session.select_timeline_item(VIDEO, false);
+
+        session.set_timeline_height_fraction(Some(0.70));
+        session.reset_layout();
+
+        assert_eq!(session.timeline_pixels_per_second, 42.0);
+        assert!(session.is_timeline_item_selected(VIDEO));
+        assert_eq!(session.timeline_height_fraction, None);
     }
 
     #[test]

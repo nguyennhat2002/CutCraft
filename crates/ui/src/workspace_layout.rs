@@ -116,17 +116,41 @@ pub struct TimelineHeights {
     pub max: f32,
 }
 
-pub fn timeline_heights(available_height: f32) -> TimelineHeights {
-    let available = if available_height.is_finite() && available_height > 0.0 {
-        available_height
-    } else {
-        config::TIMELINE_DEFAULT_HEIGHT
-    };
-    let min = config::TIMELINE_MIN_HEIGHT;
-    let max = (available * 0.52).max(min).min(config::TIMELINE_MAX_HEIGHT);
-    let default = (available * 0.48).clamp(min, max);
+pub fn timeline_heights(available_height: f32, content_height: f32) -> TimelineHeights {
+    let available = positive_or(available_height, config::TIMELINE_DEFAULT_HEIGHT);
+    let content = positive_or(content_height, available);
+    let max =
+        (content - config::WORKSPACE_SPLITTER_WIDTH - config::WORKSPACE_MIN_TOP_HEIGHT).max(0.0);
+    let min = config::TIMELINE_MIN_HEIGHT.min(max);
+    let default = (available * config::TIMELINE_DEFAULT_FRACTION)
+        .min(config::TIMELINE_DEFAULT_HEIGHT)
+        .clamp(min, max);
 
     TimelineHeights { default, min, max }
+}
+
+/// Resolve a user's preferred timeline height, or the responsive default when
+/// no preference has been saved. The result always leaves the upper workspace
+/// at least `WORKSPACE_MIN_TOP_HEIGHT` points when space permits.
+pub fn timeline_height(
+    available_height: f32,
+    content_height: f32,
+    preferred_fraction: Option<f32>,
+) -> f32 {
+    let heights = timeline_heights(available_height, content_height);
+    let Some(fraction) = preferred_fraction.filter(|value| value.is_finite()) else {
+        return heights.default;
+    };
+    let available = positive_or(available_height, config::TIMELINE_DEFAULT_HEIGHT);
+    (available * fraction.clamp(0.0, 1.0)).clamp(heights.min, heights.max)
+}
+
+fn positive_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        fallback
+    }
 }
 
 fn sanitized_fraction(value: f32, fallback: f32, max: f32) -> f32 {
@@ -203,14 +227,62 @@ mod tests {
     }
 
     #[test]
-    fn timeline_height_tracks_available_space() {
-        let reference = timeline_heights(828.0);
-        assert_close(reference.default, 397.44);
-        assert_close(reference.max, 430.56);
+    fn timeline_height_defaults_and_dynamic_max_leave_room_for_workspace() {
+        let heights = timeline_heights(828.0, 816.0);
 
-        let compact = timeline_heights(648.0);
-        assert_close(compact.default, 311.04);
-        assert_close(compact.max, 336.96);
-        assert!(compact.default >= config::TIMELINE_MIN_HEIGHT);
+        assert_close(heights.default, 397.44);
+        assert_close(heights.min, config::TIMELINE_MIN_HEIGHT);
+        assert_close(
+            heights.max,
+            816.0 - config::WORKSPACE_SPLITTER_WIDTH - config::WORKSPACE_MIN_TOP_HEIGHT,
+        );
+        assert_close(
+            816.0 - heights.max - config::WORKSPACE_SPLITTER_WIDTH,
+            config::WORKSPACE_MIN_TOP_HEIGHT,
+        );
+        assert!(heights.max > 460.0, "52% cap must not limit the timeline");
+    }
+
+    #[test]
+    fn timeline_height_prefers_user_fraction_and_clamps_to_geometry() {
+        let default_height = timeline_height(828.0, 816.0, None);
+        assert_close(default_height, 397.44);
+
+        assert_close(timeline_height(828.0, 816.0, Some(0.60)), 828.0 * 0.60);
+        assert_close(
+            timeline_height(828.0, 816.0, Some(0.01)),
+            config::TIMELINE_MIN_HEIGHT,
+        );
+        assert_close(timeline_height(828.0, 816.0, Some(0.99)), 630.0);
+        assert_close(
+            timeline_height(828.0, 816.0, Some(f32::NAN)),
+            default_height,
+        );
+        let invalid = timeline_height(f32::NAN, f32::NAN, Some(0.60));
+        assert!(invalid.is_finite() && invalid > 0.0);
+        assert_close(invalid, timeline_heights(f32::NAN, f32::NAN).default);
+    }
+
+    #[test]
+    fn compact_window_keeps_the_upper_workspace_usable() {
+        let heights = timeline_heights(536.0, 524.0);
+
+        assert_close(heights.default, config::TIMELINE_MIN_HEIGHT);
+        assert_close(heights.max, 338.0);
+        assert_close(timeline_height(536.0, 524.0, Some(0.99)), heights.max);
+        assert_close(timeline_height(536.0, 524.0, Some(0.60)), 536.0 * 0.60);
+        assert!(
+            524.0 - heights.max - config::WORKSPACE_SPLITTER_WIDTH
+                >= config::WORKSPACE_MIN_TOP_HEIGHT - 0.5
+        );
+    }
+
+    #[test]
+    fn too_little_content_collapses_the_timeline_instead_of_overflowing() {
+        let heights = timeline_heights(100.0, 100.0);
+
+        assert_eq!(heights.min, 0.0);
+        assert_eq!(heights.max, 0.0);
+        assert_eq!(timeline_height(100.0, 100.0, Some(0.5)), 0.0);
     }
 }

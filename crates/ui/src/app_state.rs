@@ -5,6 +5,7 @@
 
 use crate::editor_state::EditorSession;
 use crate::shortcuts::{CommandId, ShortcutManager, ShortcutRuntime, ShortcutsDialogState};
+use crate::workspace_preferences::{WorkspacePreferences, WorkspaceStore};
 
 /// Top-level application screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +82,8 @@ pub struct AppState {
     session: Option<EditorSession>,
     shortcuts: ShortcutManager,
     shortcuts_dialog: Option<ShortcutsDialogState>,
+    workspace_preferences: WorkspacePreferences,
+    workspace_store: Option<WorkspaceStore>,
     about_open: bool,
     notice: Notice,
 }
@@ -92,6 +95,8 @@ impl Default for AppState {
             session: None,
             shortcuts: ShortcutManager::default(),
             shortcuts_dialog: None,
+            workspace_preferences: WorkspacePreferences::default(),
+            workspace_store: None,
             about_open: false,
             notice: Notice::info(
                 "UI shell only \u{2014} editing, playback, and export are not implemented.",
@@ -126,6 +131,43 @@ impl AppState {
     pub fn install_shortcuts(&mut self, shortcuts: ShortcutManager) {
         self.shortcuts = shortcuts;
         self.shortcuts_dialog = None;
+    }
+
+    pub fn install_workspace_preferences(
+        &mut self,
+        preferences: WorkspacePreferences,
+        store: Option<WorkspaceStore>,
+    ) {
+        self.workspace_preferences = preferences;
+        self.workspace_store = store;
+        if let Some(session) = &mut self.session {
+            session.set_timeline_height_fraction(preferences.timeline_height_fraction);
+        }
+    }
+
+    pub fn workspace_preferences(&self) -> WorkspacePreferences {
+        self.workspace_preferences
+    }
+
+    /// Save only when the editor requested it after a drag, reset or layout command.
+    pub fn persist_workspace_layout_if_requested(&mut self) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if !session.take_layout_save_request() {
+            return false;
+        }
+        let preferences = WorkspacePreferences {
+            timeline_height_fraction: session.timeline_height_fraction,
+        };
+        self.workspace_preferences = preferences;
+        if let Some(store) = &self.workspace_store {
+            if let Err(error) = store.save(preferences) {
+                self.notice =
+                    Notice::warning(format!("Workspace layout could not be saved: {error}"));
+            }
+        }
+        true
     }
 
     pub fn shortcuts_open(&self) -> bool {
@@ -237,7 +279,9 @@ impl AppState {
     ///
     /// Any previous temporary session is replaced. No data is written to disk.
     pub fn create_temporary_project(&mut self) {
-        self.session = Some(EditorSession::default());
+        let mut session = EditorSession::default();
+        session.set_timeline_height_fraction(self.workspace_preferences.timeline_height_fraction);
+        self.session = Some(session);
         self.screen = Screen::Editor;
         self.notice =
             Notice::info("Temporary project created in memory. Nothing is saved to disk.");
@@ -361,6 +405,7 @@ mod tests {
         TimelineContentState, TimelineDisplayMode, TimelineItemId, TimelineItemView,
         TimelineTrackView, TrackKind,
     };
+    use crate::workspace_preferences::{WorkspacePreferences, WorkspaceStore};
 
     fn editor_state() -> AppState {
         let mut state = AppState::default();
@@ -673,6 +718,122 @@ mod tests {
         assert!(session.tools_visible);
         assert!(session.inspector_visible);
         assert!(session.timeline_visible);
+    }
+
+    fn workspace_store(name: &str) -> (WorkspaceStore, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "cutcraft-app-workspace-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("workspace temp");
+        (WorkspaceStore::new(dir.join("workspace.json")), dir)
+    }
+
+    #[test]
+    fn timeline_height_is_shared_across_projects_and_persisted() {
+        let (store, dir) = workspace_store("shared-height");
+        let mut state = AppState::default();
+        state.install_workspace_preferences(
+            WorkspacePreferences {
+                timeline_height_fraction: Some(0.61),
+            },
+            Some(store.clone()),
+        );
+
+        state.create_temporary_project();
+        assert_eq!(
+            state.session().expect("session").timeline_height_fraction,
+            Some(0.61)
+        );
+
+        state
+            .session_mut()
+            .expect("session")
+            .set_timeline_height_fraction(Some(0.73));
+        state.session_mut().expect("session").request_layout_save();
+        assert!(state.persist_workspace_layout_if_requested());
+        assert!(!state.persist_workspace_layout_if_requested());
+        assert_eq!(
+            store.load().expect("load").expect("preferences"),
+            WorkspacePreferences {
+                timeline_height_fraction: Some(0.73)
+            }
+        );
+
+        state.create_temporary_project();
+        assert_eq!(
+            state
+                .session()
+                .expect("new session")
+                .timeline_height_fraction,
+            Some(0.73),
+            "a new project must keep the shared timeline height"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reset_layout_persists_automatic_timeline_height() {
+        let (store, dir) = workspace_store("reset-height");
+        let mut state = AppState::default();
+        state.install_workspace_preferences(
+            WorkspacePreferences {
+                timeline_height_fraction: Some(0.64),
+            },
+            Some(store.clone()),
+        );
+        state.create_temporary_project();
+        state.reset_layout();
+
+        assert!(state.persist_workspace_layout_if_requested());
+        assert_eq!(
+            store.load().expect("load").expect("preferences"),
+            WorkspacePreferences {
+                timeline_height_fraction: None
+            }
+        );
+
+        state.create_temporary_project();
+        assert_eq!(
+            state
+                .session()
+                .expect("new session")
+                .timeline_height_fraction,
+            None
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn workspace_save_failure_is_reported_without_losing_the_session() {
+        let dir = std::env::temp_dir().join(format!(
+            "cutcraft-app-workspace-failure-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("workspace temp");
+        let parent_file = dir.join("not-a-directory");
+        std::fs::write(&parent_file, b"file").expect("parent file");
+        let store = WorkspaceStore::new(parent_file.join("workspace.json"));
+
+        let mut state = AppState::default();
+        state.install_workspace_preferences(WorkspacePreferences::default(), Some(store));
+        state.create_temporary_project();
+        state
+            .session_mut()
+            .expect("session")
+            .set_timeline_height_fraction(Some(0.70));
+        state.session_mut().expect("session").request_layout_save();
+
+        assert!(state.persist_workspace_layout_if_requested());
+        assert_eq!(state.notice().severity(), NoticeSeverity::Warning);
+        assert!(state.notice().message().contains("workspace layout"));
+        assert_eq!(
+            state.session().expect("session").timeline_height_fraction,
+            Some(0.70)
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
