@@ -16,8 +16,21 @@ pub fn show(ui: &mut Ui, state: &AppState) {
     };
 
     let context_label = match state.screen() {
-        Screen::Editor => "Temporary session \u{00b7} Not saved",
-        Screen::Home | Screen::Projects | Screen::Settings => "No saved projects",
+        Screen::Editor => match state
+            .session()
+            .and_then(|session| session.auto_save_status())
+        {
+            Some(status) => format!("AutoSave \u{00b7} {}", status.label()),
+            None => "Native project \u{00b7} Not saved".to_owned(),
+        },
+        Screen::CapCutDraft => "CapCut draft \u{00b7} Read-only".to_owned(),
+        Screen::Home | Screen::Projects | Screen::Settings => {
+            if state.session().is_some() {
+                "Native project in memory".to_owned()
+            } else {
+                "No project open".to_owned()
+            }
+        }
     };
 
     egui::Panel::bottom("status_bar")
@@ -34,7 +47,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(
-                        RichText::new(format!("v{} \u{00b7} UI SHELL", config::APP_VERSION))
+                        RichText::new(format!("v{} \u{00b7} NATIVE", config::APP_VERSION))
                             .size(9.5)
                             .color(Palette::TEXT_DISABLED),
                     );

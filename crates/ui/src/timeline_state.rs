@@ -282,7 +282,7 @@ pub struct TimelineTrackView {
     pub items: Vec<TimelineItemView>,
 }
 
-/// Owned view data retained by the temporary session across Home/Resume.
+/// Owned view data retained by the native session across Home/Resume.
 /// A future engine adapter may replace this projection after successful commands.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct TimelineView {

@@ -1,12 +1,18 @@
 //! Editor composition: compact project bar, resizable three-column workspace,
 //! expandable timeline, and the export modal.
 
+use std::sync::{Arc, Mutex};
+
+use capcut_renderer::PreviewRenderer;
 use egui::{pos2, vec2, CornerRadius, CursorIcon, Rect, Sense, Stroke, Ui};
 
 use crate::app_state::AppState;
 use crate::config;
 use crate::editor_state::EditorSession;
+use crate::media_library_state::MediaLibraryState;
+use crate::media_preview_state::MediaPreview;
 use crate::theme::Palette;
+use crate::widgets::media_pool::MediaPoolAction;
 use crate::widgets::timeline::clip_visuals::TimelineVisualCache;
 use crate::widgets::toolbar::TopBarAction;
 use crate::widgets::{export_dialog, inspector, media_pool, panel, preview, timeline, toolbar};
@@ -20,12 +26,15 @@ pub fn show(ui: &mut Ui, state: &mut AppState, timeline_visuals: &mut TimelineVi
         return;
     }
 
-    let action = {
-        let Some((session, shortcuts)) = state.session_and_shortcuts_mut() else {
+    let gpu_renderer = state.preview_renderer();
+    let (action, media_pool_action) = {
+        let Some((session, shortcuts, media, media_library)) = state.session_shortcuts_media_mut()
+        else {
             return;
         };
 
         let action = toolbar::show(ui, session, shortcuts);
+        let mut media_pool_action = None;
 
         paint_editor_background(ui);
         let available = ui.available_size();
@@ -74,7 +83,15 @@ pub fn show(ui: &mut Ui, state: &mut AppState, timeline_visuals: &mut TimelineVi
             let workspace_rect =
                 Rect::from_min_size(content.min, vec2(content.width(), workspace_height));
 
-            show_workspace(ui, workspace_rect, session);
+            show_workspace(
+                ui,
+                workspace_rect,
+                session,
+                media,
+                media_library,
+                &mut media_pool_action,
+                gpu_renderer.as_ref(),
+            );
 
             if session.timeline_visible && timeline_height > 1.0 {
                 let timeline_rect = Rect::from_min_size(
@@ -95,14 +112,44 @@ pub fn show(ui: &mut Ui, state: &mut AppState, timeline_visuals: &mut TimelineVi
             session.export_open = true;
         }
 
-        action
+        (action, media_pool_action)
     };
+
+    match media_pool_action {
+        Some(MediaPoolAction::Import) => state.open_media_import_dialog(),
+        Some(MediaPoolAction::Append(asset)) => {
+            let _ = state.append_media_asset(asset);
+            context.request_repaint();
+        }
+        Some(MediaPoolAction::Relink(asset)) => {
+            state.open_media_relink_dialog(asset);
+            context.request_repaint();
+        }
+        None => {}
+    }
 
     match action {
         TopBarAction::Home => state.go_home(),
         TopBarAction::Shortcuts => {
             state.open_shortcuts();
             context.request_repaint();
+        }
+        TopBarAction::NewProject => state.request_new_project(),
+        TopBarAction::OpenProject => state.request_open_native_project(),
+        TopBarAction::RenameProject => state.begin_active_project_rename(),
+        TopBarAction::DuplicateProject => {
+            if let Some(project_id) = state
+                .session()
+                .and_then(EditorSession::native_document)
+                .map(|document| document.project_id().clone())
+            {
+                let _ = state.duplicate_library_project(&project_id);
+            }
+        }
+        TopBarAction::SaveRecoveryCopy => {
+            if let Err(error) = state.preserve_conflict_copy() {
+                state.report_error(error);
+            }
         }
         TopBarAction::None | TopBarAction::Export => {}
     }
@@ -114,7 +161,15 @@ fn paint_editor_background(ui: &Ui) {
         .rect_filled(rect, CornerRadius::ZERO, Palette::APP_BG);
 }
 
-fn show_workspace(ui: &mut Ui, rect: Rect, session: &mut EditorSession) {
+fn show_workspace(
+    ui: &mut Ui,
+    rect: Rect,
+    session: &mut EditorSession,
+    media: &MediaPreview,
+    media_library: &mut MediaLibraryState,
+    media_pool_action: &mut Option<MediaPoolAction>,
+    gpu_renderer: Option<&Arc<Mutex<PreviewRenderer>>>,
+) {
     let show_left = session.tools_visible;
     let show_right = session.inspector_visible;
     let gap = config::WORKSPACE_SPLITTER_WIDTH;
@@ -133,7 +188,7 @@ fn show_workspace(ui: &mut Ui, rect: Rect, session: &mut EditorSession) {
         add_panel(
             ui,
             Rect::from_min_size(pos2(x, rect.top()), vec2(widths.left, rect.height())),
-            |ui| media_pool::show(ui, session),
+            |ui| *media_pool_action = media_pool::show(ui, session, media_library),
         );
         x += widths.left;
         splitter(
@@ -149,7 +204,7 @@ fn show_workspace(ui: &mut Ui, rect: Rect, session: &mut EditorSession) {
     add_panel(
         ui,
         Rect::from_min_size(pos2(x, rect.top()), vec2(widths.center, rect.height())),
-        |ui| preview::show(ui, session),
+        |ui| preview::show(ui, session, media, gpu_renderer),
     );
     x += widths.center;
 

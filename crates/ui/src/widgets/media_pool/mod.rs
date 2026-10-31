@@ -4,18 +4,32 @@
 //! all editing actions are disabled.
 
 use egui::{
-    pos2, vec2, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin,
-    Rect, Response, RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui,
+    pos2, vec2, Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin, Rect,
+    Response, RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui,
 };
 
 use crate::editor_state::{EditorSession, EditorTool};
+use crate::media_library_state::{AssetAvailability, MediaLibraryState};
 use crate::theme::{Palette, Radii};
 use crate::widgets::common;
 use crate::widgets::common::focus_ring;
 use crate::widgets::controls;
 use crate::widgets::icons::{self, Icon, IconColors, IconSize};
+use capcut_engine::asset::{MediaAsset, MediaAssetId};
 
-pub fn show(ui: &mut Ui, session: &mut EditorSession) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaPoolAction {
+    Import,
+    Append(MediaAssetId),
+    Relink(MediaAssetId),
+}
+
+pub fn show(
+    ui: &mut Ui,
+    session: &mut EditorSession,
+    media_library: &MediaLibraryState,
+) -> Option<MediaPoolAction> {
+    let mut action = None;
     Frame::new()
         .fill(Palette::TOOLBAR_BG)
         .inner_margin(Margin::symmetric(8, 5))
@@ -55,7 +69,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
                             match session.active_tool {
-                    EditorTool::Media => media_body(ui),
+                    EditorTool::Media => action = media_body(ui, session, media_library),
                     EditorTool::Audio => audio_body(ui),
                     EditorTool::Text => text_body(ui),
                     EditorTool::Stickers => locked_body(
@@ -109,25 +123,179 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession) {
                 caption_footer(ui);
             });
     }
+    action
 }
 
-fn media_body(ui: &mut Ui) {
+fn media_body(
+    ui: &mut Ui,
+    session: &EditorSession,
+    media_library: &MediaLibraryState,
+) -> Option<MediaPoolAction> {
+    let mut action = None;
     subtab_row(ui, &["Local", "Stock", "Cloud"]);
     ui.add_space(6.0);
     disabled_search(ui, "Search media");
     ui.add_space(5.0);
-    let _ = common::disabled_action_button(ui, "Import Media", "Media import is not implemented.");
-    ui.add_space(8.0);
-    media_grid_empty(ui);
-    ui.add_space(6.0);
-    ui.add(
-        egui::Label::new(
-            RichText::new("No files are read and no video is decoded in this build.")
-                .size(9.5)
-                .color(Palette::TEXT_DISABLED),
+    if ui
+        .add(
+            egui::Button::new(
+                RichText::new("Import Media")
+                    .size(10.0)
+                    .color(Palette::ON_ACCENT),
+            )
+            .fill(Palette::ACCENT)
+            .min_size(vec2(ui.available_width(), 26.0)),
         )
-        .wrap(),
-    );
+        .clicked()
+    {
+        action = Some(MediaPoolAction::Import);
+    }
+    ui.add_space(8.0);
+    let assets = session
+        .native_timeline
+        .as_ref()
+        .map(|native| native.project().assets())
+        .unwrap_or(&[]);
+    if assets.is_empty() {
+        media_grid_empty(ui);
+        ui.add_space(6.0);
+        ui.add(
+            egui::Label::new(
+                RichText::new(
+                    "Import a local H.264 MP4 to register a project media asset. Assets can be reused by multiple Timeline clips.",
+                )
+                .size(9.0)
+                .color(Palette::TEXT_DISABLED),
+            )
+            .wrap(),
+        );
+        return action;
+    }
+    for asset in assets.iter().rev() {
+        if media_asset_card(ui, session, media_library, asset, &mut action) {
+            break;
+        }
+        ui.add_space(6.0);
+    }
+    action
+}
+
+fn media_asset_card(
+    ui: &mut Ui,
+    session: &EditorSession,
+    media_library: &MediaLibraryState,
+    asset: &MediaAsset,
+    action: &mut Option<MediaPoolAction>,
+) -> bool {
+    let availability = media_library.availability(asset.id());
+    let status = availability
+        .map(AssetAvailability::label)
+        .unwrap_or("Unverified");
+    let status_color = match availability {
+        Some(AssetAvailability::Available) | None => Palette::SUCCESS,
+        Some(AssetAvailability::Checking) => Palette::ACCENT_LIGHT,
+        Some(AssetAvailability::Missing) => Palette::WARNING,
+        Some(AssetAvailability::Unreadable(_)) | Some(AssetAvailability::Changed(_)) => {
+            Palette::ERROR
+        }
+    };
+    let metadata = asset.metadata();
+    let duration = metadata
+        .duration_source_ticks()
+        .ok()
+        .map(|ticks| format!("{:.2} s", ticks.get() as f64 / 120_000.0))
+        .unwrap_or_else(|| "duration unknown".to_owned());
+    let fps = metadata
+        .nominal_frame_rate
+        .map(|rate| {
+            if rate.denominator == 1 {
+                format!("{} fps", rate.numerator)
+            } else {
+                format!("{:.2} fps", rate.as_f64())
+            }
+        })
+        .unwrap_or_else(|| "fps unknown".to_owned());
+    let mut clicked = false;
+    Frame::new()
+        .fill(Palette::CARD_BG)
+        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
+        .corner_radius(Radii::CARD)
+        .inner_margin(Margin::same(9))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(
+                RichText::new(asset.display_name())
+                    .size(10.5)
+                    .strong()
+                    .color(Palette::TEXT_PRIMARY),
+            );
+            ui.label(
+                RichText::new(format!(
+                    "{}x{}  \u{00b7}  {}  \u{00b7}  {}",
+                    metadata.width, metadata.height, duration, fps
+                ))
+                .size(8.0)
+                .color(Palette::TEXT_MUTED),
+            );
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(status).size(8.0).color(status_color));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let label = format!("Append {} to Main Track", asset.display_name());
+                    let can_append = availability.is_none_or(|status| {
+                        matches!(
+                            status,
+                            AssetAvailability::Available | AssetAvailability::Checking
+                        )
+                    }) && metadata.duration_source_ticks().is_ok()
+                        && session.native_timeline.as_ref().is_some_and(|native| {
+                            native
+                                .project()
+                                .main_track()
+                                .is_none_or(|track| !track.locked())
+                        });
+                    if ui
+                        .add_enabled(
+                            can_append,
+                            egui::Button::new(RichText::new("Append").size(8.5))
+                                .min_size(vec2(62.0, 22.0)),
+                        )
+                        .on_hover_text(label)
+                        .on_hover_cursor(if can_append {
+                            CursorIcon::PointingHand
+                        } else {
+                            CursorIcon::NotAllowed
+                        })
+                        .clicked()
+                    {
+                        *action = Some(MediaPoolAction::Append(asset.id()));
+                        clicked = true;
+                    }
+                    let needs_relink = matches!(
+                        availability,
+                        Some(AssetAvailability::Missing)
+                            | Some(AssetAvailability::Unreadable(_))
+                            | Some(AssetAvailability::Changed(_))
+                    );
+                    if needs_relink
+                        && ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("Relink").size(8.5).color(Palette::WARNING),
+                                )
+                                .min_size(vec2(58.0, 22.0)),
+                            )
+                            .clicked()
+                    {
+                        *action = Some(MediaPoolAction::Relink(asset.id()));
+                        clicked = true;
+                    }
+                });
+            });
+            if let Some(detail) = availability.and_then(AssetAvailability::detail) {
+                ui.label(RichText::new(detail).size(7.5).color(Palette::TEXT_MUTED));
+            }
+        });
+    clicked
 }
 
 fn audio_body(ui: &mut Ui) {
@@ -416,6 +584,9 @@ fn category_tab(ui: &mut Ui, tool: EditorTool, selected: bool) -> Response {
         },
     );
 
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::accesskit::Role::Tab, true, selected, tool.label())
+    });
     response
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text(tool.label())
@@ -467,81 +638,12 @@ fn disabled_search(ui: &mut Ui, hint: &str) {
 }
 
 fn media_grid_empty(ui: &mut Ui) {
-    Frame::new()
-        .fill(Palette::APP_BG)
-        .stroke(Stroke::new(1.0, Palette::BORDER_SUBTLE))
-        .corner_radius(Radii::CARD)
-        .inner_margin(Margin::same(10))
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            let height = ui.available_height().clamp(180.0, 300.0);
-            let (rect, _) =
-                ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-            let painter = ui.painter_at(rect);
-
-            let gap = 8.0;
-            let columns = 3;
-            let rows = 2;
-            let tile_width = (rect.width() - gap * (columns as f32 - 1.0)) / columns as f32;
-            let tile_height =
-                (rect.height() - gap * (rows as f32 - 1.0) - 24.0) / rows as f32 - 6.0;
-
-            for row in 0..rows {
-                for column in 0..columns {
-                    let tile = Rect::from_min_size(
-                        pos2(
-                            rect.left() + column as f32 * (tile_width + gap),
-                            rect.top() + row as f32 * (tile_height + gap),
-                        ),
-                        vec2(tile_width, tile_height),
-                    );
-                    painter.rect_filled(tile, Radii::CONTROL, Palette::CARD_BG);
-                    painter.rect_stroke(
-                        tile,
-                        Radii::CONTROL,
-                        Stroke::new(1.0, Palette::BORDER_SUBTLE),
-                        StrokeKind::Inside,
-                    );
-                    let icon_center = pos2(tile.center().x, tile.center().y - 4.0);
-                    let icon_rect = Rect::from_center_size(icon_center, vec2(18.0, 18.0));
-                    icons::paint_sized(
-                        &painter,
-                        icon_rect,
-                        Icon::Media,
-                        IconSize::Small,
-                        IconColors::DISABLED,
-                    );
-                }
-            }
-
-            let overlay =
-                Rect::from_center_size(rect.center(), vec2((rect.width() - 32.0).min(280.0), 76.0));
-            painter.rect_filled(
-                overlay,
-                Radii::CONTROL,
-                Color32::from_rgba_unmultiplied(24, 24, 25, 240),
-            );
-            painter.rect_stroke(
-                overlay,
-                Radii::CONTROL,
-                Stroke::new(1.0, Palette::BORDER),
-                StrokeKind::Inside,
-            );
-            painter.text(
-                overlay.center() - vec2(0.0, 10.0),
-                Align2::CENTER_CENTER,
-                "No media imported",
-                FontId::proportional(12.0),
-                Palette::TEXT_SECONDARY,
-            );
-            painter.text(
-                overlay.center() + vec2(0.0, 10.0),
-                Align2::CENTER_CENTER,
-                "Import is not available in this build",
-                FontId::proportional(9.0),
-                Palette::TEXT_DISABLED,
-            );
-        });
+    common::compact_empty_state(
+        ui,
+        Icon::Media,
+        "No media imported",
+        "Imported H.264 files appear here as project media assets.",
+    );
 }
 
 fn waveform_placeholder(ui: &mut Ui) {
@@ -587,6 +689,7 @@ mod tests {
     #[test]
     fn every_library_category_renders_without_media() {
         let context = egui::Context::default();
+        let library = MediaLibraryState::default();
 
         for tool in EditorTool::ALL {
             let mut session = EditorSession {
@@ -597,7 +700,9 @@ mod tests {
                 screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(520.0, 620.0))),
                 ..Default::default()
             };
-            let output = context.run_ui(input, |ui| show(ui, &mut session));
+            let output = context.run_ui(input, |ui| {
+                show(ui, &mut session, &library);
+            });
             assert!(!output.shapes.is_empty());
             output.drop_without_applying_deltas();
         }
@@ -617,7 +722,12 @@ mod tests {
         session
     }
 
-    fn click(context: &egui::Context, position: egui::Pos2, session: &mut EditorSession) {
+    fn click(
+        context: &egui::Context,
+        position: egui::Pos2,
+        session: &mut EditorSession,
+        library: &MediaLibraryState,
+    ) {
         let input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(520.0, 620.0))),
             events: vec![
@@ -637,7 +747,9 @@ mod tests {
             ],
             ..Default::default()
         };
-        let output = context.run_ui(input, |ui| show(ui, session));
+        let output = context.run_ui(input, |ui| {
+            show(ui, session, library);
+        });
         output.drop_without_applying_deltas();
     }
 
@@ -645,13 +757,14 @@ mod tests {
     fn clicking_media_pool_content_never_selects_or_clears_timeline_items() {
         let context = egui::Context::default();
         let mut session = populated_session();
+        let library = MediaLibraryState::default();
         let positions = [
             egui::pos2(60.0, 200.0),
             egui::pos2(180.0, 260.0),
             egui::pos2(80.0, 420.0),
         ];
         for position in positions {
-            click(&context, position, &mut session);
+            click(&context, position, &mut session, &library);
             assert!(session.timeline_selection().is_empty());
             assert_eq!(session.timeline_selection_context().kind(), None);
         }
@@ -660,7 +773,7 @@ mod tests {
         let video = TimelineItemId { track: 0, item: 0 };
         assert!(session.select_timeline_item(video, false));
         for position in positions {
-            click(&context, position, &mut session);
+            click(&context, position, &mut session, &library);
             assert_eq!(
                 session.timeline_selection_context().kind(),
                 Some(TimelineSelectionKind::VideoOnly)

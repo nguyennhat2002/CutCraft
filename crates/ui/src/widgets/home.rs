@@ -1,15 +1,17 @@
 //! Homepage, Projects, and Settings screens.
 //!
-//! These screens share a teal navigation sidebar and compact header. All
-//! project data is temporary UI state; nothing is read from or written to disk.
+//! These screens share a teal navigation sidebar and compact header. Native
+//! `.cutcraft` projects are opened through an explicit path dialog; project
+//! listing is not implemented.
 
 use egui::{
     pos2, vec2, Align, Align2, Color32, CursorIcon, FontId, Frame, Layout, Margin, Mesh, Panel,
-    Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke, StrokeKind, TextEdit, Ui,
+    Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke, StrokeKind, Ui,
 };
 
 use crate::app_state::{AppState, Screen};
 use crate::config;
+use crate::native_document::AutoSaveStatus;
 use crate::theme::{Palette, Radii};
 use crate::widgets::common::{self, focus_ring, focus_ring_colored};
 use crate::widgets::icons::{self, Icon, IconColors, IconSize};
@@ -44,7 +46,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                 Screen::Home => home_content(ui, state),
                                 Screen::Projects => projects_content(ui, state),
                                 Screen::Settings => settings_content(ui),
-                                Screen::Editor => {}
+                                Screen::Editor | Screen::CapCutDraft => {}
                             }
                         });
                     });
@@ -103,7 +105,7 @@ fn sidebar(ui: &mut Ui, state: &mut AppState) {
             }
             ui.add_space(4.0);
             ui.label(
-                RichText::new(format!("v{} \u{00b7} UI shell", config::APP_VERSION))
+                RichText::new(format!("v{} \u{00b7} Native preview", config::APP_VERSION))
                     .size(8.5)
                     .color(Palette::TEXT_DISABLED),
             );
@@ -267,7 +269,9 @@ fn sidebar_promo(ui: &mut Ui) {
                 ui.add_space(2.0);
                 ui.add(
                     egui::Label::new(
-                        RichText::new("Media, playback, and export arrive in later milestones.")
+                        RichText::new(
+                            "Single-frame H.264 preview is available; playback and export are later milestones.",
+                        )
                             .size(8.5)
                             .color(Palette::TEXT_MUTED),
                     )
@@ -279,7 +283,6 @@ fn sidebar_promo(ui: &mut Ui) {
 
 fn header(ui: &mut Ui, state: &mut AppState) {
     let screen = state.screen();
-    let has_session = state.has_session();
 
     Panel::top("home_header")
         .exact_size(config::HOME_HEADER_HEIGHT)
@@ -315,13 +318,27 @@ fn header(ui: &mut Ui, state: &mut AppState) {
                     {
                         state.open_about();
                     }
-                    if has_session {
+                    if let Some(session) = state.session() {
                         ui.add_space(8.0);
-                        ui.label(
-                            RichText::new("Temporary session")
-                                .size(9.0)
-                                .color(Palette::WARNING),
-                        );
+                        let (label, color) = match session.auto_save_status() {
+                            Some(AutoSaveStatus::Saved { .. }) => {
+                                ("AutoSave \u{00b7} Saved", Palette::SUCCESS)
+                            }
+                            Some(AutoSaveStatus::Saving) => {
+                                ("AutoSave \u{00b7} Saving...", Palette::ACCENT_LIGHT)
+                            }
+                            Some(AutoSaveStatus::UnsavedChanges) => {
+                                ("AutoSave \u{00b7} Unsaved changes", Palette::WARNING)
+                            }
+                            Some(AutoSaveStatus::Failed(_)) => {
+                                ("AutoSave \u{00b7} Save failed", Palette::ERROR)
+                            }
+                            Some(AutoSaveStatus::Conflict(_)) => {
+                                ("AutoSave \u{00b7} Conflict detected", Palette::ERROR)
+                            }
+                            None => ("Native project \u{00b7} not saved", Palette::WARNING),
+                        };
+                        ui.label(RichText::new(label).size(9.0).color(color));
                     }
                 });
             });
@@ -330,12 +347,141 @@ fn header(ui: &mut Ui, state: &mut AppState) {
 
 fn home_content(ui: &mut Ui, state: &mut AppState) {
     create_banner(ui, state);
-    ui.add_space(18.0);
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        let button_width = ((ui.available_width() - 8.0) / 2.0).max(180.0);
+        if ui
+            .add(
+                egui::Button::new(
+                    RichText::new("Open CutCraft Project")
+                        .size(11.0)
+                        .color(Palette::TEXT_PRIMARY),
+                )
+                .fill(Palette::HOME_CARD)
+                .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
+                .corner_radius(Radii::CONTROL)
+                .min_size(vec2(button_width, 30.0)),
+            )
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text("Open a native .cutcraft project. This is not a CapCut draft folder.")
+            .clicked()
+        {
+            state.request_open_native_project();
+        }
+        if ui
+            .add(
+                egui::Button::new(
+                    RichText::new("Open CapCut Draft")
+                        .size(11.0)
+                        .color(Palette::TEXT_PRIMARY),
+                )
+                .fill(Palette::HOME_CARD)
+                .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
+                .corner_radius(Radii::CONTROL)
+                .min_size(vec2(button_width, 30.0)),
+            )
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text(
+                "Open an extracted CapCut draft folder read-only. The source is never modified.",
+            )
+            .clicked()
+        {
+            state.open_capcut_draft_dialog();
+        }
+    });
+    ui.add_space(12.0);
     feature_cards(ui);
     ui.add_space(20.0);
     creative_suite(ui);
     ui.add_space(20.0);
+    recovery_section(ui, state);
     projects_section(ui, state);
+}
+
+fn recovery_section(ui: &mut Ui, state: &mut AppState) {
+    let candidates = state.recovery_candidates().to_vec();
+    let warning = state.recovery_warning().map(str::to_owned);
+    let has_newer = candidates
+        .iter()
+        .any(|candidate| candidate.status == capcut_project::RecoveryCandidateStatus::Newer);
+    if !has_newer && warning.is_none() {
+        return;
+    }
+    ui.label(
+        RichText::new("Recovery")
+            .size(15.0)
+            .strong()
+            .color(Palette::TEXT_PRIMARY),
+    );
+    ui.add_space(8.0);
+    if let Some(warning) = warning {
+        Frame::new()
+            .fill(Palette::HOME_CARD)
+            .stroke(Stroke::new(1.0, Palette::ERROR))
+            .corner_radius(Radii::CARD)
+            .inner_margin(Margin::symmetric(14, 10))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.label(RichText::new(warning).size(9.5).color(Palette::ERROR));
+                ui.label(
+                    RichText::new(
+                        "The last valid project file was not changed. Invalid recovery data is never applied automatically.",
+                    )
+                    .size(8.2)
+                    .color(Palette::TEXT_MUTED),
+                );
+            });
+        ui.add_space(6.0);
+    }
+    for candidate in candidates {
+        if candidate.status != capcut_project::RecoveryCandidateStatus::Newer {
+            continue;
+        }
+        let path = candidate.path.clone();
+        Frame::new()
+            .fill(Palette::HOME_CARD)
+            .stroke(Stroke::new(1.0, Palette::WARNING))
+            .corner_radius(Radii::CARD)
+            .inner_margin(Margin::symmetric(14, 10))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Recovered work available")
+                                .size(10.5)
+                                .strong()
+                                .color(Palette::TEXT_PRIMARY),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "{}  \u{00b7}  recovery generation {}  \u{00b7}  last saved {}",
+                                candidate.name.as_deref().unwrap_or("Project"),
+                                candidate.document_generation.unwrap_or(0),
+                                candidate.last_saved_generation.unwrap_or(0)
+                            ))
+                            .size(8.2)
+                            .color(Palette::TEXT_MUTED),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new("Review").size(9.5))
+                                    .min_size(vec2(72.0, 24.0)),
+                            )
+                            .clicked()
+                        {
+                            if let Err(error) = state.review_recovery_candidate(&path) {
+                                state.report_warning(error);
+                            }
+                        }
+                    });
+                });
+            });
+        ui.add_space(6.0);
+    }
+    ui.add_space(14.0);
 }
 
 fn create_banner(ui: &mut Ui, state: &mut AppState) {
@@ -391,11 +537,15 @@ fn create_banner(ui: &mut Ui, state: &mut AppState) {
         galley,
         Color32::from_rgb(0x07, 0x14, 0x16),
     );
-    if state.has_session() {
+    if let Some(session) = state.session() {
+        let status = session
+            .auto_save_status()
+            .map(AutoSaveStatus::label)
+            .unwrap_or("Native project");
         painter.text(
             pos2(rect.left() + 16.0, rect.bottom() - 15.0),
             Align2::LEFT_CENTER,
-            "Temporary session \u{00b7} not saved to disk",
+            format!("Current project \u{00b7} {status}"),
             FontId::proportional(9.0),
             Color32::from_rgba_unmultiplied(7, 20, 22, 170),
         );
@@ -453,7 +603,7 @@ fn create_banner(ui: &mut Ui, state: &mut AppState) {
     if resume_clicked {
         state.resume_editor();
     } else if create_clicked {
-        state.create_temporary_project();
+        state.request_new_project();
     }
 }
 
@@ -778,74 +928,203 @@ fn paint_suite_card(ui: &Ui, rect: Rect, title: &str, from: Color32, to: Color32
 fn projects_section(ui: &mut Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new("Projects")
+            RichText::new("Recent Projects")
                 .size(15.0)
                 .strong()
                 .color(Palette::TEXT_PRIMARY),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let _ =
-                common::disabled_icon_button(ui, Icon::List, "List view requires saved projects.");
-            let _ =
-                common::disabled_icon_button(ui, Icon::Grid, "Grid view requires saved projects.");
-            let mut query = String::new();
-            let search = ui.add_enabled(
-                false,
-                TextEdit::singleline(&mut query)
-                    .hint_text("Search projects")
-                    .desired_width(180.0),
-            );
-            let _ = search.on_disabled_hover_text("Search requires saved projects.");
+            if state.is_creating_project() {
+                ui.label(
+                    RichText::new("Creating project...")
+                        .size(8.5)
+                        .color(Palette::ACCENT_LIGHT),
+                );
+            } else {
+                ui.label(
+                    RichText::new(format!("{} saved", state.project_library_entries().len()))
+                        .size(8.5)
+                        .color(Palette::TEXT_DISABLED),
+                );
+            }
         });
     });
     ui.add_space(8.0);
+    projects_list(ui, state);
+}
 
-    Frame::new()
-        .fill(Palette::HOME_CARD)
-        .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
-        .corner_radius(Radii::CARD)
-        .inner_margin(Margin::same(22))
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.set_min_height(170.0);
-            ui.vertical_centered(|ui| {
-                ui.add_space(14.0);
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
-                icons::paint_sized(
-                    ui.painter(),
-                    icon_rect,
-                    Icon::Folder,
-                    IconSize::EmptyState,
-                    IconColors::MUTED,
-                );
-                ui.add_space(6.0);
+fn projects_list(ui: &mut Ui, state: &mut AppState) {
+    if let Some(error) = state.project_library_error().map(str::to_owned) {
+        Frame::new()
+            .fill(Palette::HOME_CARD)
+            .stroke(Stroke::new(1.0, Palette::ERROR))
+            .corner_radius(Radii::CARD)
+            .inner_margin(Margin::same(16))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.label(
-                    RichText::new("No projects yet")
-                        .size(12.5)
-                        .strong()
-                        .color(Palette::TEXT_SECONDARY),
+                    RichText::new(format!("Project library error: {error}"))
+                        .size(9.5)
+                        .color(Palette::ERROR),
                 );
-                ui.add_space(2.0);
-                ui.add(
-                    egui::Label::new(
+            });
+        return;
+    }
+    let entries = state.project_library_entries().to_vec();
+    if entries.is_empty() {
+        Frame::new()
+            .fill(Palette::HOME_CARD)
+            .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
+            .corner_radius(Radii::CARD)
+            .inner_margin(Margin::same(22))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.set_min_height(150.0);
+                ui.vertical_centered(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(
+                        RichText::new("No projects yet")
+                            .size(12.5)
+                            .strong()
+                            .color(Palette::TEXT_SECONDARY),
+                    );
+                    ui.add_space(2.0);
+                    ui.label(
                         RichText::new(
-                            "Create a project to open the editor. Projects are not saved to disk \
-                             in this build.",
+                            "Create a project and CutCraft will save it automatically to the managed project library.",
                         )
                         .size(9.5)
                         .color(Palette::TEXT_MUTED),
-                    )
-                    .wrap(),
-                );
-                ui.add_space(10.0);
-                if common::primary_button(ui, "Create Project", 140.0).clicked() {
-                    state.create_temporary_project();
-                }
+                    );
+                    ui.add_space(10.0);
+                    if common::primary_button(ui, "Create Project", 140.0).clicked() {
+                        state.request_new_project();
+                    }
+                });
             });
-        });
+        return;
+    }
+    for entry in entries {
+        Frame::new()
+            .fill(Palette::HOME_CARD)
+            .stroke(Stroke::new(
+                1.0,
+                if entry.is_valid() {
+                    Palette::HOME_BORDER
+                } else {
+                    Palette::ERROR
+                },
+            ))
+            .corner_radius(Radii::CARD)
+            .inner_margin(Margin::symmetric(12, 9))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    let (icon_rect, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
+                    ui.painter()
+                        .rect_filled(icon_rect, Radii::CONTROL, Palette::ACCENT_BG);
+                    icons::paint_sized(
+                        ui.painter(),
+                        icon_rect,
+                        Icon::Folder,
+                        IconSize::Small,
+                        IconColors::SELECTED,
+                    );
+                    ui.add_space(4.0);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new(entry.display_name())
+                                .size(11.5)
+                                .strong()
+                                .color(Palette::TEXT_PRIMARY),
+                        );
+                        match &entry.status {
+                            capcut_project::ProjectEntryStatus::Valid => {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{}  \u{00b7}  schema v{}  \u{00b7}  {}",
+                                        format_unix_ms(entry.last_saved_unix_ms),
+                                        entry.schema_version.unwrap_or(0),
+                                        entry.path.display()
+                                    ))
+                                    .size(7.8)
+                                    .color(Palette::TEXT_MUTED),
+                                );
+                            }
+                            capcut_project::ProjectEntryStatus::Invalid(message) => {
+                                ui.label(
+                                    RichText::new(format!("Invalid project: {message}"))
+                                        .size(8.2)
+                                        .color(Palette::ERROR),
+                                );
+                            }
+                        }
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if entry.is_valid() {
+                            if let Some(project_id) = entry.project_id.clone() {
+                                if common::primary_button(ui, "Open", 64.0).clicked() {
+                                    state.open_library_project(project_id.clone());
+                                }
+                                if ui
+                                    .add(
+                                        egui::Button::new(RichText::new("Duplicate").size(9.5))
+                                            .min_size(vec2(72.0, 24.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    let _ = state.duplicate_library_project(&project_id);
+                                }
+                                if ui
+                                    .add(
+                                        egui::Button::new(RichText::new("Rename").size(9.5))
+                                            .min_size(vec2(64.0, 24.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    state.begin_library_rename(project_id);
+                                }
+                            }
+                        }
+                    });
+                });
+            });
+        ui.add_space(5.0);
+    }
 }
 
-fn current_session_card(ui: &mut Ui, state: &mut AppState, project_name: &str) {
+fn format_unix_ms(value: u64) -> String {
+    if value == 0 {
+        return "never saved".to_owned();
+    }
+    let seconds = (value / 1000) as i64;
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400) as u32;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    if month <= 2 {
+        year += 1;
+    }
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
+        seconds_of_day / 3_600,
+        (seconds_of_day % 3_600) / 60
+    )
+}
+
+fn current_session_card(
+    ui: &mut Ui,
+    state: &mut AppState,
+    project_name: &str,
+    status: Option<AutoSaveStatus>,
+) {
     Frame::new()
         .fill(Palette::HOME_CARD)
         .stroke(Stroke::new(1.0, Palette::ACCENT_DIM))
@@ -873,11 +1152,25 @@ fn current_session_card(ui: &mut Ui, state: &mut AppState, project_name: &str) {
                             .strong()
                             .color(Palette::TEXT_PRIMARY),
                     );
-                    ui.label(
-                        RichText::new("Temporary session \u{00b7} not saved to disk")
-                            .size(9.0)
-                            .color(Palette::TEXT_MUTED),
-                    );
+                    let (label, color) = match status.as_ref() {
+                        Some(AutoSaveStatus::Saved { .. }) => {
+                            ("AutoSave \u{00b7} Saved", Palette::SUCCESS)
+                        }
+                        Some(AutoSaveStatus::Saving) => {
+                            ("AutoSave \u{00b7} Saving...", Palette::ACCENT_LIGHT)
+                        }
+                        Some(AutoSaveStatus::UnsavedChanges) => {
+                            ("AutoSave \u{00b7} Unsaved changes", Palette::WARNING)
+                        }
+                        Some(AutoSaveStatus::Failed(_)) => {
+                            ("AutoSave \u{00b7} Save failed", Palette::ERROR)
+                        }
+                        Some(AutoSaveStatus::Conflict(_)) => {
+                            ("AutoSave \u{00B7} Conflict detected", Palette::ERROR)
+                        }
+                        None => ("Native project \u{00b7} Not saved", Palette::WARNING),
+                    };
+                    ui.label(RichText::new(label).size(9.0).color(color));
                 });
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -893,74 +1186,50 @@ fn projects_content(ui: &mut Ui, state: &mut AppState) {
     page_intro(
         ui,
         "Projects",
-        "Start a temporary edit or return to the session held in memory.",
+        "Start a native project, open a .cutcraft file, or return to the session in memory.",
     );
     ui.add_space(12.0);
-    if common::primary_button(ui, "Create Project", 150.0).clicked() {
-        state.create_temporary_project();
-    }
+    ui.horizontal(|ui| {
+        if common::primary_button(ui, "Create Project", 150.0).clicked() {
+            state.request_new_project();
+        }
+        ui.add_space(6.0);
+        if ui
+            .add(
+                egui::Button::new(
+                    RichText::new("Open CutCraft Project")
+                        .size(10.5)
+                        .color(Palette::TEXT_PRIMARY),
+                )
+                .fill(Palette::HOME_CARD)
+                .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
+                .corner_radius(Radii::CONTROL)
+                .min_size(vec2(160.0, 28.0)),
+            )
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text("Open a native .cutcraft project.")
+            .clicked()
+        {
+            state.request_open_native_project();
+        }
+    });
     ui.add_space(22.0);
 
-    if let Some(project_name) = state.session().map(|session| session.project_name.clone()) {
-        common::section_heading(ui, "Current session");
+    if let Some((project_name, status)) = state.session().map(|session| {
+        (
+            session.project_name.clone(),
+            session.auto_save_status().cloned(),
+        )
+    }) {
+        common::section_heading(ui, "Current editor session");
         ui.add_space(4.0);
-        current_session_card(ui, state, &project_name);
+        current_session_card(ui, state, &project_name, status);
         ui.add_space(20.0);
     }
 
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new("Saved projects")
-                .size(15.0)
-                .strong()
-                .color(Palette::TEXT_PRIMARY),
-        );
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(
-                RichText::new("0 saved")
-                    .size(8.5)
-                    .color(Palette::TEXT_DISABLED),
-            );
-        });
-    });
-    ui.add_space(8.0);
-
-    Frame::new()
-        .fill(Palette::HOME_CARD)
-        .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
-        .corner_radius(Radii::CARD)
-        .inner_margin(Margin::same(24))
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.vertical_centered(|ui| {
-                let (icon_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
-                icons::paint_sized(
-                    ui.painter(),
-                    icon_rect,
-                    Icon::Folder,
-                    IconSize::EmptyState,
-                    IconColors::MUTED,
-                );
-                ui.add_space(6.0);
-                ui.label(
-                    RichText::new("No saved projects")
-                        .size(12.5)
-                        .strong()
-                        .color(Palette::TEXT_SECONDARY),
-                );
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(
-                            "This build does not read or write project files. Saved projects \
-                             will appear here after persistence is implemented.",
-                        )
-                        .size(9.5)
-                        .color(Palette::TEXT_MUTED),
-                    )
-                    .wrap(),
-                );
-            });
-        });
+    common::section_heading(ui, "Managed project library");
+    ui.add_space(4.0);
+    projects_list(ui, state);
 }
 
 fn settings_content(ui: &mut Ui) {
@@ -986,20 +1255,22 @@ fn settings_content(ui: &mut Ui) {
         ui,
         "Project storage",
         &[
-            ("Persistence", "Not implemented"),
-            ("Autosave", "Not implemented"),
+            ("Library", "Managed local projects"),
+            ("AutoSave", "Generations with debounce"),
+            ("Recovery", "Not implemented"),
         ],
-        "Projects exist only in memory and disappear when the app closes.",
+        "Projects auto-save to the CutCraft project library. AutoSave is not crash-proof and no recovery journal is implemented.",
     );
     ui.add_space(10.0);
     settings_card(
         ui,
-        "Playback and export",
+        "Preview and export",
         &[
-            ("Preview engine", "Not implemented"),
+            ("Frame preview", "H.264 via local FFmpeg CLI"),
+            ("Playback and audio", "Not implemented"),
             ("Encoder", "Not implemented"),
         ],
-        "Playback, decoding, and export controls remain disabled.",
+        "Preview requires a locally installed FFmpeg CLI. Playback, audio, and export remain disabled.",
     );
 }
 
@@ -1089,7 +1360,7 @@ mod tests {
         assert!(text.iter().any(|line| line == "Create Project"));
         assert!(text.iter().any(|line| line == "Featured tools"));
         assert!(text.iter().any(|line| line == "Creative suite"));
-        assert!(text.iter().any(|line| line == "Projects"));
+        assert!(text.iter().any(|line| line == "Recent Projects"));
         assert!(text.iter().any(|line| line == "No projects yet"));
         output.drop_without_applying_deltas();
     }
@@ -1112,7 +1383,7 @@ mod tests {
     }
 
     #[test]
-    fn homepage_shows_resume_action_for_a_temporary_session() {
+    fn homepage_shows_resume_action_for_a_native_session() {
         let context = egui::Context::default();
         crate::theme::configure(&context);
         let mut state = AppState::default();
@@ -1123,6 +1394,8 @@ mod tests {
         output.drop_without_applying_deltas();
 
         assert!(text.iter().any(|line| line.contains("Resume editing")));
-        assert!(text.iter().any(|line| line.contains("Temporary session")));
+        assert!(text
+            .iter()
+            .any(|line| line.contains("AutoSave") || line.contains("Current project")));
     }
 }

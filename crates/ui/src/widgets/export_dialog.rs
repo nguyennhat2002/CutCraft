@@ -1,6 +1,6 @@
 //! Modal export configuration dialog.
 //!
-//! Settings are stored for the temporary session, but encoding is not
+//! Settings are stored for the current session, but encoding is not
 //! implemented and the Export action is permanently disabled.
 
 use egui::{

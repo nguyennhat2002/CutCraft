@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/capcut-editor", "crates/core", "crates/capcut-format", "crates/engine", "crates/media", "crates/renderer", "crates/ui", "xtask"]
+members = ["apps/capcut-editor", "crates/core", "crates/capcut-format", "crates/engine", "crates/media", "crates/project", "crates/renderer", "crates/ui", "xtask"]
 default-members = ["apps/capcut-editor"]
 resolver = "2"
 
@@ -10,15 +10,19 @@ rust-version = "1.97"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+libc = "0.2"
 egui = "0.37.0"
 eframe = "0.37.0"
 egui_extras = { version = "0.37.0", default-features = false, features = ["svg"] }
 egui-lucide = "0.2.0"
+wgpu = "30.0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 capcut-core = { path = "crates/core" }
 capcut-format = { path = "crates/capcut-format" }
 capcut-engine = { path = "crates/engine" }
 capcut-media = { path = "crates/media" }
+capcut-project = { path = "crates/project" }
 capcut-renderer = { path = "crates/renderer" }
 capcut-ui = { path = "crates/ui" }

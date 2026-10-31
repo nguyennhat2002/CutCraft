@@ -8,6 +8,7 @@ use egui::{
 
 use crate::config;
 use crate::editor_state::EditorSession;
+use crate::native_document::AutoSaveStatus;
 use crate::shortcuts::{CommandId, ShortcutManager};
 use crate::theme::{Palette, Radii};
 use crate::widgets::common;
@@ -23,6 +24,11 @@ pub enum TopBarAction {
     Home,
     Export,
     Shortcuts,
+    NewProject,
+    OpenProject,
+    RenameProject,
+    DuplicateProject,
+    SaveRecoveryCopy,
 }
 
 pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManager) -> TopBarAction {
@@ -61,19 +67,75 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                         .on_hover_text(&session.project_name);
                     },
                 );
+                let (save_text, save_color, save_hint) = match session.auto_save_status() {
+                    Some(AutoSaveStatus::Saved {
+                        last_saved_unix_ms,
+                    }) => (
+                        "Saved",
+                        Palette::SUCCESS,
+                        match session.native_document().and_then(|document| document.path()) {
+                            Some(path) => format!(
+                                "AutoSave completed at {} ms.\n{}",
+                                last_saved_unix_ms,
+                                path.display()
+                            ),
+                            None => "Project content is saved.".to_owned(),
+                        },
+                    ),
+                    Some(AutoSaveStatus::Saving) => (
+                        "Saving...",
+                        Palette::ACCENT_LIGHT,
+                        "AutoSave is writing the current project generation.".to_owned(),
+                    ),
+                    Some(AutoSaveStatus::UnsavedChanges) => (
+                        "Unsaved changes",
+                        Palette::WARNING,
+                        "AutoSave will persist this project after the debounce interval.".to_owned(),
+                    ),
+                    Some(AutoSaveStatus::Failed(message)) => (
+                        "Save failed",
+                        Palette::ERROR,
+                        format!("AutoSave failed. The project remains dirty.\n{message}"),
+                    ),
+                    Some(AutoSaveStatus::Conflict(message)) => (
+                        "Conflict detected",
+                        Palette::ERROR,
+                        format!("AutoSave is paused because the project file changed externally.\n{message}"),
+                    ),
+                    None => (
+                        "Not saved",
+                        Palette::WARNING,
+                        "This session has no managed project document.".to_owned(),
+                    ),
+                };
+                let badge_width = match save_text {
+                    "Unsaved changes" => 108.0,
+                    "Saving..." | "Save failed" => 88.0,
+                    "Conflict detected" => 118.0,
+                    _ => 68.0,
+                };
                 ui.allocate_ui_with_layout(
-                    vec2(68.0, 22.0),
+                    vec2(badge_width, 22.0),
                     Layout::left_to_right(Align::Center),
                     |ui| {
-                        let _ = common::badge(ui, "Not saved", Palette::WARNING).on_hover_text(
-                            "Temporary in-memory session; nothing is saved to disk.",
-                        );
+                        let _ = common::badge(ui, save_text, save_color).on_hover_text(save_hint);
                     },
                 );
 
                 ui.add_space(4.0);
-                if menu_bar::show_menus(ui, session, shortcuts) {
-                    action = TopBarAction::Home;
+                if let Some(menu_action) = menu_bar::show_menus(ui, session, shortcuts) {
+                    action = match menu_action {
+                        menu_bar::MenuAction::BackHome => TopBarAction::Home,
+                        menu_bar::MenuAction::NewProject => TopBarAction::NewProject,
+                        menu_bar::MenuAction::OpenProject => TopBarAction::OpenProject,
+                        menu_bar::MenuAction::RenameProject => TopBarAction::RenameProject,
+                        menu_bar::MenuAction::DuplicateProject => {
+                            TopBarAction::DuplicateProject
+                        }
+                        menu_bar::MenuAction::SaveRecoveryCopy => {
+                            TopBarAction::SaveRecoveryCopy
+                        }
+                    };
                 }
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -93,26 +155,46 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                         action = TopBarAction::Shortcuts;
                     }
                     ui.add_space(2.0);
-                    let redo_shortcut = shortcuts.shortcut_hint(CommandId::Redo);
-                    let redo_hint = match redo_shortcut {
-                        Some(shortcut) => format!(
-                            "Redo history requires editor commands and is not implemented. ({shortcut})"
-                        ),
-                        None => {
-                            "Redo history requires editor commands and is not implemented.".to_owned()
+                    let native_active = session.native_document().is_some();
+                    if native_active {
+                        if session.can_redo_native() {
+                            if common::icon_button(ui, Icon::Redo, "Redo").clicked() {
+                                let _ = session.redo_native();
+                            }
+                        } else {
+                            let _ = common::disabled_icon_button(ui, Icon::Redo, "Nothing to redo.");
                         }
-                    };
-                    let _ = common::disabled_icon_button(ui, Icon::Redo, &redo_hint);
-                    let undo_shortcut = shortcuts.shortcut_hint(CommandId::Undo);
-                    let undo_hint = match undo_shortcut {
-                        Some(shortcut) => format!(
-                            "Undo history requires editor commands and is not implemented. ({shortcut})"
-                        ),
-                        None => {
-                            "Undo history requires editor commands and is not implemented.".to_owned()
+                        if session.can_undo_native() {
+                            if common::icon_button(ui, Icon::Undo, "Undo").clicked() {
+                                let _ = session.undo_native();
+                            }
+                        } else {
+                            let _ = common::disabled_icon_button(ui, Icon::Undo, "Nothing to undo.");
                         }
-                    };
-                    let _ = common::disabled_icon_button(ui, Icon::Undo, &undo_hint);
+                    } else {
+                        let redo_shortcut = shortcuts.shortcut_hint(CommandId::Redo);
+                        let redo_hint = match redo_shortcut {
+                            Some(shortcut) => format!(
+                                "Redo history requires editor commands and is not implemented. ({shortcut})"
+                            ),
+                            None => {
+                                "Redo history requires editor commands and is not implemented."
+                                    .to_owned()
+                            }
+                        };
+                        let _ = common::disabled_icon_button(ui, Icon::Redo, &redo_hint);
+                        let undo_shortcut = shortcuts.shortcut_hint(CommandId::Undo);
+                        let undo_hint = match undo_shortcut {
+                            Some(shortcut) => format!(
+                                "Undo history requires editor commands and is not implemented. ({shortcut})"
+                            ),
+                            None => {
+                                "Undo history requires editor commands and is not implemented."
+                                    .to_owned()
+                            }
+                        };
+                        let _ = common::disabled_icon_button(ui, Icon::Undo, &undo_hint);
+                    }
                 });
             });
         });
@@ -195,7 +277,7 @@ fn home_button(ui: &mut Ui) -> Response {
 
     response
         .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text("Return to the homepage. Your temporary session stays in memory.")
+        .on_hover_text("Return to the homepage. The native project stays in memory; unsaved changes are protected.")
 }
 
 fn brand_mark(ui: &mut Ui) {

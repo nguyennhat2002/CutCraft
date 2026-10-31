@@ -1,15 +1,20 @@
 //! eframe application entry and native window configuration.
 
+use std::time::{Duration, Instant};
+
 use crate::shortcuts::{ShortcutManager, ShortcutStore};
 use crate::widgets::timeline::clip_visuals::TimelineVisualCache;
 use crate::workspace_preferences::{WorkspacePreferences, WorkspaceStore};
 use crate::{app_state::AppState, config, theme, widgets};
+use capcut_renderer::PreviewRenderer;
 
 /// The CutCraft desktop application.
 #[derive(Default)]
 pub struct CutCraftApp {
     state: AppState,
     timeline_visuals: TimelineVisualCache,
+    close_after_copy: bool,
+    render_log: bool,
 }
 
 impl CutCraftApp {
@@ -17,7 +22,10 @@ impl CutCraftApp {
     /// user's shortcut profile. Corrupt configuration degrades to defaults.
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         theme::configure(&creation_context.egui_ctx);
-        let mut app = Self::default();
+        let mut app = Self {
+            render_log: std::env::var_os("CUTCRAFT_RENDER_LOG").is_some(),
+            ..Self::default()
+        };
         let store = ShortcutStore::user_default();
         let persistence_unavailable = store.is_none();
         let (shortcuts, warning) = ShortcutManager::load(store);
@@ -47,6 +55,52 @@ impl CutCraftApp {
         if let Some(warning) = workspace_warning {
             app.state.report_warning(warning);
         }
+        match capcut_project::ProjectLibrary::user_default() {
+            Ok(library) => app.state.install_project_library(library),
+            Err(error) => app.state.install_project_library_error(error.to_string()),
+        }
+        let requested_renderer = std::env::var("CUTCRAFT_PREVIEW_RENDERER").unwrap_or_default();
+        if requested_renderer.eq_ignore_ascii_case("egui") {
+            eprintln!("[cutcraft-renderer] forced egui fallback by CUTCRAFT_PREVIEW_RENDERER");
+        } else if requested_renderer.eq_ignore_ascii_case("init-failure") {
+            // QA seam: exercises the exact branch the app takes when GPU Preview
+            // initialization fails, without needing a broken driver.
+            eprintln!("[cutcraft-renderer] simulated initialization failure requested");
+            app.state.report_warning(
+                "GPU preview unavailable; using egui fallback: simulated initialization failure",
+            );
+        } else if let Some(render_state) = creation_context.wgpu_render_state.as_ref() {
+            let adapter = render_state.adapter.get_info();
+            eprintln!(
+                "[cutcraft-renderer] reusing eframe wgpu backend={:?} adapter={:?} driver={:?} target={:?}",
+                adapter.backend, adapter.name, adapter.driver, render_state.target_format
+            );
+            match PreviewRenderer::new(
+                &render_state.device,
+                &render_state.queue,
+                render_state.target_format,
+            ) {
+                Ok(renderer) => app.state.install_preview_renderer(renderer),
+                Err(error) => {
+                    eprintln!("[cutcraft-renderer] initialization failed: {error}");
+                    app.state.report_warning(format!(
+                        "GPU preview unavailable; using egui fallback: {error}"
+                    ));
+                }
+            }
+        } else {
+            eprintln!("[cutcraft-renderer] no wgpu render state; using egui fallback");
+            if requested_renderer.eq_ignore_ascii_case("gpu") {
+                app.state.report_warning(
+                    "GPU preview was requested but eframe did not expose a wgpu render state.",
+                );
+            }
+        }
+        if let Ok(path) = std::env::var("CUTCRAFT_OPEN_DRAFT") {
+            let _ = app
+                .state
+                .load_capcut_draft_from(std::path::Path::new(&path));
+        }
         app
     }
 
@@ -55,7 +109,27 @@ impl CutCraftApp {
     /// Kept separate from the `eframe::App` impl so headless tests can drive it
     /// without creating a native window.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        // Diagnostic-only tick timing; disabled unless CUTCRAFT_RENDER_LOG is set
+        // so normal runs pay nothing for it.
+        let render_log = self.render_log;
+        let tick_started = render_log.then(Instant::now);
+        let mut lap = tick_started;
+        let mut state_ms = 0.0_f64;
+        let mut shell_ms = 0.0_f64;
+        let uploads_before = self
+            .state
+            .preview_renderer_metrics()
+            .map(|metrics| metrics.upload_count);
         let context = ui.ctx().clone();
+        if context.input(|input| input.viewport().close_requested())
+            && !self.state.request_app_close()
+        {
+            if self.state.copy_job_active() {
+                self.close_after_copy = true;
+            }
+            context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+        self.state.poll_copy_job();
         let shortcuts_were_open = self.state.shortcuts_open();
         self.state.handle_shortcuts(&context);
         if !shortcuts_were_open && self.state.shortcuts_open() {
@@ -63,8 +137,65 @@ impl CutCraftApp {
             // one follow-up frame so it becomes visible without another input.
             context.request_repaint();
         }
+        self.state.update_auto_save(&context);
+        self.state.update_media_library(&context);
+        self.state.update_media_preview(&context);
+        if let Some(previous) = lap.take() {
+            state_ms = previous.elapsed().as_secs_f64() * 1_000.0;
+        }
+        if render_log {
+            lap = Some(Instant::now());
+        }
         widgets::layout::show_shell(ui, &mut self.state, &mut self.timeline_visuals);
+        if let Some(previous) = lap.take() {
+            shell_ms = previous.elapsed().as_secs_f64() * 1_000.0;
+        }
         self.state.persist_workspace_layout_if_requested();
+        if self.state.take_exit_request() {
+            context.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if self.close_after_copy {
+            if self.state.copy_job_active() {
+                context.request_repaint_after(Duration::from_millis(100));
+            } else {
+                context.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+        if let Some(tick_started) = tick_started {
+            let draw_ms = tick_started.elapsed().as_secs_f64() * 1_000.0;
+            match self.state.preview_renderer_metrics() {
+                Some(metrics) => {
+                    let milliseconds = |value: Option<f64>| match value {
+                        Some(value) => format!("{value:.3}"),
+                        None => "n/a".to_owned(),
+                    };
+                    eprintln!(
+                        "[cutcraft-ui] draw_ms={draw_ms:.3} state_ms={state_ms:.3} shell_ms={shell_ms:.3} gpu=true tick_uploads={} upload_cpu_ms={} allocation_cpu_ms={} submit_cpu_ms={} gpu_completion_ms={} present_ms={} gpu_texture_bytes={} staging_bytes={} peak_gpu_bytes={} peak_staging_bytes={} reallocs={} reuses={} skipped={} rejections={}",
+                        uploads_before
+                            .map(|before| metrics.upload_count.saturating_sub(before))
+                            .unwrap_or(0),
+                        milliseconds(metrics.frame_upload_cpu_ms),
+                        milliseconds(metrics.texture_allocation_cpu_ms),
+                        milliseconds(metrics.renderer_submit_ms),
+                        milliseconds(metrics.gpu_upload_completion_ms),
+                        milliseconds(metrics.preview_present_ms),
+                        metrics.gpu_texture_bytes,
+                        metrics.cpu_staging_bytes,
+                        metrics.peak_gpu_texture_bytes,
+                        metrics.peak_cpu_staging_bytes,
+                        metrics.reallocation_count,
+                        metrics.texture_reuse_count,
+                        metrics.uploads_skipped,
+                        metrics.upload_rejections,
+                    );
+                }
+                None => {
+                    eprintln!(
+                        "[cutcraft-ui] draw_ms={draw_ms:.3} state_ms={state_ms:.3} shell_ms={shell_ms:.3} gpu=false tick_uploads=0"
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -271,6 +402,105 @@ mod tests {
             }
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn window_close_defers_exit_until_the_draft_copy_is_safe() {
+        let base =
+            std::env::temp_dir().join(format!("cutcraft-app-close-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("base");
+        let source = base.join("source");
+        std::fs::create_dir_all(&source).expect("source");
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../capcut-format/tests/fixtures/synthetic-draft");
+        std::fs::copy(
+            fixture.join("REDACTED-DRAFT-FILENAME"),
+            source.join("REDACTED-DRAFT-FILENAME"),
+        )
+        .expect("draft");
+        std::fs::write(source.join("padding.bin"), vec![0x5A; 32 * 1024 * 1024]).expect("padding");
+        let destination = base.join("copy");
+
+        let context = Context::default();
+        theme::configure(&context);
+        let mut app = CutCraftApp::default();
+        app.state
+            .load_capcut_draft_from(&source)
+            .expect("load draft");
+        app.state
+            .start_capcut_copy(&destination)
+            .expect("start copy");
+
+        let mut close_input = frame_input(1600.0, 900.0, 0.0);
+        let mut viewport = egui::ViewportInfo::default();
+        viewport.events.push(egui::ViewportEvent::Close);
+        close_input
+            .viewports
+            .insert(egui::ViewportId::ROOT, viewport);
+        let output = context.run_ui(close_input, |ui| app.draw(ui));
+        let commands = &output.viewport_output[&ViewportId::ROOT].commands;
+        assert!(
+            commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::CancelClose)),
+            "closing must be deferred while the copy worker is active"
+        );
+        if app.state.copy_job_active() {
+            assert!(app.state.copy_cancellation_requested());
+        }
+        output.drop_without_applying_deltas();
+
+        let mut close_sent = false;
+        for step in 0..500 {
+            let output = context.run_ui(
+                frame_input(1600.0, 900.0, 0.1 + step as f64 / 100.0),
+                |ui| app.draw(ui),
+            );
+            let commands = &output.viewport_output[&ViewportId::ROOT].commands;
+            if commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Close))
+            {
+                close_sent = true;
+                output.drop_without_applying_deltas();
+                break;
+            }
+            output.drop_without_applying_deltas();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            close_sent,
+            "the app must close after the copy is cleaned up"
+        );
+        assert!(!app.state.copy_job_active());
+        let draft = app.state.capcut_draft().expect("draft");
+        if draft.copy_report.is_some() {
+            assert!(
+                destination.is_dir(),
+                "a report is only valid when the published copy exists"
+            );
+        } else {
+            assert!(draft.copy_error.is_some());
+            assert!(
+                !destination.exists(),
+                "failed or cancelled copies publish nothing"
+            );
+        }
+
+        let leftovers = std::fs::read_dir(&base)
+            .expect("base")
+            .filter(|entry| {
+                entry.as_ref().is_ok_and(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .contains("cutcraft-staging")
+                })
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

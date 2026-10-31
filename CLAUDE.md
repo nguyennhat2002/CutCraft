@@ -21,12 +21,13 @@ crates/core
 crates/capcut-format
 crates/engine
 crates/media
+crates/project
 crates/renderer
 crates/ui
 xtask
 ```
 
-The desktop `main.rs` launches an eframe window using pinned `egui`/`eframe` 0.37.0 (ADR-0001). The app is a dark, resizable **UI shell** with Home/Projects/Settings navigation, a temporary in-memory Editor session (library tabs, Preview, Timeline, Inspector), and a settings-only Export modal. Editing, media import, playback, and export encoding are not implemented; their controls are disabled, and no project is written to disk. The timeline/command model, playback controller, decoder, frame cache, compositor, video preview, format import/export, and packaging modules remain placeholders. FFmpeg and a video compositor backend have not been selected; eframe's wgpu renderer paints the UI only. Avoid claiming any of these systems works until the code and tests prove it.
+The desktop `main.rs` launches an eframe window using pinned `egui`/`eframe` 0.37.0 (ADR-0001). The app has Home/Projects/Settings navigation, real Recent Projects, a native Editor session (library tabs, Preview, Timeline, Inspector), a settings-only Export modal, and managed `.cutcraft` schema v2 projects that are created automatically, AutoSaved through a bounded generation-safe worker, discovered on Home, renamed/duplicated, and reopened. The supported engine command subset covers DeleteClip, TrimClipEnd shortening, SplitClip, NormalizeMainTrack, AddMediaAsset, RelinkMediaAsset, AppendMediaClip, RenameProject and session-only Undo/Redo. The Timeline owns an authoritative integer-tick playhead with mouse scrubbing, frame keyboard navigation and Split-at-Playhead. Media Pool import registers local H.264 videos as persistent assets without copying media bytes; import/append/relink and asset validation use bounded background probe work. M4-A adds a renderer-owned single-layer wgpu Preview that reuses eframe's existing device/queue, preserves clip/PTS identity and aspect/orientation, bounds texture resources, and falls back to the egui texture path when GPU preview is unavailable. The clip-aware Preview resolves the active Timeline clip through its asset, maps the playhead through checked rational PTS conversion, and displays real decoded frames with generation-based stale-result suppression; gaps, offline/changed media, and multiple visual layers are explicit states. AutoSave exposes Saving/Saved/Unsaved changes/Save failed/Conflict, flushes before navigation/exit, preserves dirty state on failure, and never silently overwrites an externally modified file. M3-D.1 adds checksum-validated one-slot recovery snapshots, an explicit Restore as New Project flow, and a Save Recovery Copy route for conflicts; recovery never automatically overwrites the primary. There is no AutoRecovery journal, so AutoSave is not crash-proof; inactive rename/duplicate are synchronous library operations, and there is no OS-level multi-process lock. Audio, playback, compositing, hardware decode, linked-media movement, and export encoding are not implemented. CapCut draft folders remain a separate read-only compatibility path and are never written by the native AutoSave path. FFmpeg is a runtime external prerequisite and not bundled or linked; eframe's wgpu renderer paints the UI and uploads the Preview texture, but there is no video compositor backend. Avoid claiming any of these systems works until the code and tests prove it.
 
 **Primary product goal:** a reliable Windows desktop editor for simple TikTok-style timelines (one 4K/30 FPS video layer, subtitles, and audio), followed by more complex editing. Prioritize a working vertical slice over breadth.
 
@@ -59,6 +60,11 @@ cargo fmt --all -- --check --config-path .config/rustfmt.toml
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo check --workspace
+
+# Separate media-enabled gate (requires local FFmpeg/FFprobe and H.264 encoder)
+$env:CUTCRAFT_REQUIRE_MEDIA = "1"
+cargo test -p capcut-media --test media_pipeline -- --nocapture
+Remove-Item Env:CUTCRAFT_REQUIRE_MEDIA
 ```
 
 These commands should be run from the workspace root. If the environment lacks Windows, a compiler, libraries, GPU access, or media files, mark the affected verification as **NOT RUN**; never replace it with a fabricated pass. Do not invoke `cargo xtask ci` as an established gate: `xtask` is presently a placeholder.

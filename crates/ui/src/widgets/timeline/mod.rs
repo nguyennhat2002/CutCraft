@@ -19,6 +19,7 @@ use crate::config;
 use crate::editor_state::EditorSession;
 use crate::shortcuts::ShortcutManager;
 use crate::theme::{Palette, Radii};
+use crate::timeline_mapping::TimelineMapping;
 use crate::timeline_state::{
     ThumbnailMode, TimelineContentState, TimelineDisplayMode, TimelineItemId, TimelineView,
 };
@@ -52,6 +53,12 @@ pub fn show(
         let demo = session.timeline_display_mode == TimelineDisplayMode::VisualDemo;
         assets.set_demo(demo);
         assets.begin_frame();
+
+        let playhead_ticks = session.playhead_ticks();
+        let native_frame_rate = session.native_frame_rate();
+        let native_end = session.native_content_end();
+        let mut scrubbing = session.timeline_scrubbing;
+        let mut playhead_update = None;
 
         let view = session.displayed_timeline();
         let pristine = view.content_state() == TimelineContentState::PristineEmpty;
@@ -96,8 +103,10 @@ pub fn show(
             .max_height(available.y)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .show_viewport(ui, |ui, viewport| {
-                let (content, response) =
-                    ui.allocate_exact_size(vec2(content_width, content_height), Sense::click());
+                let (content, response) = ui.allocate_exact_size(
+                    vec2(content_width, content_height),
+                    Sense::click_and_drag(),
+                );
                 let visible = viewport
                     .translate(content.min.to_vec2())
                     .intersect(ui.clip_rect());
@@ -106,6 +115,28 @@ pub fn show(
                     .and_then(|position| {
                         item_at(view, content, header_width, track_height, &scale, position)
                     });
+                let time_origin_x = content.left() + header_width + scale.leading_padding();
+                let mapping = native_frame_rate.zip(native_end).and_then(|(fps, end)| {
+                    TimelineMapping::new(
+                        time_origin_x,
+                        session.timeline_pixels_per_second,
+                        end,
+                        fps,
+                    )
+                });
+                let playhead_x = mapping
+                    .map(|mapping| mapping.x_for_ticks(playhead_ticks))
+                    .unwrap_or(time_origin_x);
+                let ruler_hit = Rect::from_min_max(
+                    pos2(
+                        (visible.left() + header_width).min(visible.right()),
+                        visible.top(),
+                    ),
+                    pos2(
+                        visible.right(),
+                        (visible.top() + config::TIMELINE_RULER_HEIGHT).min(visible.bottom()),
+                    ),
+                );
                 paint_content(
                     PaintContext {
                         ui,
@@ -114,6 +145,8 @@ pub fn show(
                         view,
                         track_height,
                         selection: session.timeline_selection(),
+                        playhead_x,
+                        scrubbing,
                         options: PaintOptions {
                             demo,
                             hovered,
@@ -124,22 +157,57 @@ pub fn show(
                     },
                     assets,
                 );
+                if response.drag_started() {
+                    if let (Some(position), Some(map)) = (response.interact_pointer_pos(), mapping)
+                    {
+                        if ruler_hit.contains(position) {
+                            scrubbing = true;
+                            playhead_update = map.nearest_frame_ticks(position.x);
+                        } else {
+                            scrubbing = false;
+                        }
+                    } else {
+                        scrubbing = false;
+                    }
+                } else if response.dragged() && scrubbing {
+                    if let (Some(position), Some(map)) = (response.interact_pointer_pos(), mapping)
+                    {
+                        playhead_update = map.nearest_frame_ticks(position.x);
+                    }
+                } else if response.drag_stopped() {
+                    scrubbing = false;
+                }
                 if response.clicked() {
                     if let Some(position) = response.interact_pointer_pos() {
-                        let additive =
-                            ui.input(|input| input.modifiers.command || input.modifiers.shift);
-                        click = click_target(
-                            view,
-                            content,
-                            header_width,
-                            track_height,
-                            &scale,
-                            position,
-                            additive,
-                        );
+                        if ruler_hit.contains(position) {
+                            if let Some(map) = mapping {
+                                playhead_update = map.nearest_frame_ticks(position.x);
+                            }
+                        } else {
+                            let additive =
+                                ui.input(|input| input.modifiers.command || input.modifiers.shift);
+                            click = click_target(
+                                view,
+                                content,
+                                header_width,
+                                track_height,
+                                &scale,
+                                position,
+                                additive,
+                            );
+                        }
                     }
                 }
-                if let Some(id) = hovered {
+                if scrubbing && !ui.input(|input| input.pointer.primary_down()) {
+                    scrubbing = false;
+                }
+                if ruler_hit.contains(
+                    ui.input(|input| input.pointer.hover_pos())
+                        .unwrap_or(pos2(f32::NAN, f32::NAN)),
+                ) && mapping.is_some()
+                {
+                    let _ = response.on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+                } else if let Some(id) = hovered {
                     if let Some(label) = view
                         .tracks
                         .get(id.track)
@@ -154,6 +222,10 @@ pub fn show(
             });
         let offset = output.state.clamped_offset();
         session.timeline_scroll = [offset.x, offset.y];
+        session.timeline_scrubbing = scrubbing;
+        if let Some(ticks) = playhead_update {
+            session.set_playhead_ticks(ticks);
+        }
         match click {
             Some(TimelineClick::Select(id, additive)) => {
                 session.select_timeline_item(id, additive);
@@ -246,6 +318,8 @@ struct PaintContext<'a> {
     view: &'a TimelineView,
     track_height: f32,
     selection: &'a BTreeSet<TimelineItemId>,
+    playhead_x: f32,
+    scrubbing: bool,
     options: PaintOptions,
 }
 
@@ -257,6 +331,8 @@ fn paint_content(context: PaintContext<'_>, assets: &mut TimelineVisualCache) {
         view,
         track_height,
         selection,
+        playhead_x,
+        scrubbing,
         options,
     } = context;
     let PaintedArea { content, visible } = area;
@@ -346,7 +422,8 @@ fn paint_content(context: PaintContext<'_>, assets: &mut TimelineVisualCache) {
         &painter.with_clip_rect(time_viewport),
         ruler.top(),
         body.bottom(),
-        time_origin_x + playhead::x_for_millis(scale, config::PLAYHEAD_MILLIS),
+        playhead_x,
+        scrubbing,
     );
 }
 
@@ -464,6 +541,7 @@ fn paint_invitation(ui: &Ui, body: Rect, leading_padding: f32) {
 mod tests {
     use super::*;
     use crate::timeline_state::{TimelineItemView, TimelineTrackView, TrackKind};
+    use capcut_core::time::TimelineTicks;
 
     fn input(width: f32, height: f32) -> egui::RawInput {
         egui::RawInput {
@@ -801,6 +879,223 @@ mod tests {
             ),
             None,
             "the ruler must not select or clear"
+        );
+    }
+
+    fn playhead_line(output: &egui::FullOutput) -> (f32, Rect) {
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| {
+                if let Shape::LineSegment { points, stroke } = &clipped.shape {
+                    (stroke.color == Palette::PLAYHEAD && points[0].x == points[1].x)
+                        .then_some((points[0].x, clipped.clip_rect))
+                } else {
+                    None
+                }
+            })
+            .expect("playhead line")
+    }
+
+    fn ruler_input(events: Vec<egui::Event>) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 360.0))),
+            events,
+            ..Default::default()
+        }
+    }
+
+    fn drag_on_timeline(
+        context: &egui::Context,
+        start: egui::Pos2,
+        end: egui::Pos2,
+        session: &mut EditorSession,
+    ) {
+        let press = egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..ruler_input(Vec::new())
+        };
+        let output = context.run_ui(press, |ui| {
+            show(
+                ui,
+                session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
+        });
+        output.drop_without_applying_deltas();
+
+        let moved = context.run_ui(ruler_input(vec![egui::Event::PointerMoved(end)]), |ui| {
+            show(
+                ui,
+                session,
+                &ShortcutManager::default(),
+                &mut TimelineVisualCache::default(),
+            )
+        });
+        moved.drop_without_applying_deltas();
+
+        let release = context.run_ui(
+            ruler_input(vec![egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]),
+            |ui| {
+                show(
+                    ui,
+                    session,
+                    &ShortcutManager::default(),
+                    &mut TimelineVisualCache::default(),
+                )
+            },
+        );
+        release.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn ruler_click_sets_exact_frame_ticks_without_clearing_selection() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        let selected = TimelineItemId { track: 1, item: 1 };
+        assert!(session.select_timeline_item(selected, false));
+
+        let frame = render_session(&context, &mut session);
+        let (x, clip) = playhead_line(&frame);
+        frame.drop_without_applying_deltas();
+
+        click_at(&context, pos2(x + 150.0, clip.top() + 6.0), &mut session);
+        assert_eq!(session.playhead_ticks(), TimelineTicks::new(600_000));
+        assert!(session.is_timeline_item_selected(selected));
+        assert!(!session.native_is_dirty());
+    }
+
+    #[test]
+    fn ruler_drag_scrubs_and_body_drag_does_not() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        let frame = render_session(&context, &mut session);
+        let (x, clip) = playhead_line(&frame);
+        let clip_rect = video_clip_rect(&frame);
+        frame.drop_without_applying_deltas();
+
+        drag_on_timeline(
+            &context,
+            pos2(x + 30.0, clip.top() + 6.0),
+            pos2(x + 180.0, clip.top() + 6.0),
+            &mut session,
+        );
+        assert_eq!(session.playhead_ticks(), TimelineTicks::new(6 * 120_000));
+
+        let before = session.playhead_ticks();
+        drag_on_timeline(
+            &context,
+            clip_rect.center(),
+            clip_rect.center() + vec2(120.0, 0.0),
+            &mut session,
+        );
+        assert_eq!(session.playhead_ticks(), before);
+    }
+
+    #[test]
+    fn dragging_from_the_playhead_handle_scrubs() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        let frame = render_session(&context, &mut session);
+        let (x, clip) = playhead_line(&frame);
+        frame.drop_without_applying_deltas();
+        drag_on_timeline(
+            &context,
+            pos2(x, clip.top() + 6.0),
+            pos2(x + 150.0, clip.top() + 6.0),
+            &mut session,
+        );
+        assert_eq!(session.playhead_ticks(), TimelineTicks::new(5 * 120_000));
+    }
+
+    #[test]
+    fn playhead_alignment_tracks_scroll_and_zoom_without_layout_shift() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        let initial = render_session(&context, &mut session);
+        let initial_clip = video_clip_rect(&initial);
+        initial.drop_without_applying_deltas();
+
+        assert!(session.set_playhead_ticks(TimelineTicks::new(5 * 120_000)));
+        let base_frame = render_session(&context, &mut session);
+        let base_clip = video_clip_rect(&base_frame);
+        base_frame.drop_without_applying_deltas();
+        assert_eq!(base_clip, initial_clip, "playhead must not shift layout");
+
+        session.timeline_scroll[0] = 120.0;
+        let scrolled = render_session(&context, &mut session);
+        let (scrolled_x, scrolled_clip) = playhead_line(&scrolled);
+        let scrolled_video = video_clip_rect(&scrolled);
+        scrolled.drop_without_applying_deltas();
+        assert_eq!(scrolled_video.size(), base_clip.size());
+        assert_eq!(scrolled_video.top(), base_clip.top());
+        let expected_scroll_x =
+            scrolled_clip.left() - 120.0 + config::TIMELINE_LEADING_PADDING + 150.0;
+        assert!(
+            (scrolled_x - expected_scroll_x).abs() < 1.5,
+            "scrolled playhead x={scrolled_x}, expected={expected_scroll_x}"
+        );
+
+        session.timeline_pixels_per_second = 60.0;
+        let zoomed = render_session(&context, &mut session);
+        let (zoomed_x, zoomed_clip) = playhead_line(&zoomed);
+        zoomed.drop_without_applying_deltas();
+        let expected_zoom_x = zoomed_clip.left() - 120.0 + config::TIMELINE_LEADING_PADDING + 300.0;
+        assert!(
+            (zoomed_x - expected_zoom_x).abs() < 1.5,
+            "zoomed playhead x={zoomed_x}, expected={expected_zoom_x}"
+        );
+    }
+
+    #[test]
+    fn ruler_click_beyond_project_end_clamps_to_exact_end() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        session.timeline_pixels_per_second = 4.0;
+        let frame = render_session(&context, &mut session);
+        let (_, clip) = playhead_line(&frame);
+        frame.drop_without_applying_deltas();
+        click_at(
+            &context,
+            pos2(clip.right() - 5.0, clip.top() + 6.0),
+            &mut session,
+        );
+        assert_eq!(session.playhead_ticks(), TimelineTicks::new(35 * 120_000));
+    }
+
+    #[test]
+    fn clip_body_click_keeps_playhead_and_selects_clip() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        assert!(session.set_playhead_ticks(TimelineTicks::new(5 * 120_000)));
+        let frame = render_session(&context, &mut session);
+        let clip = video_clip_rect(&frame);
+        frame.drop_without_applying_deltas();
+        click_at(&context, clip.center(), &mut session);
+        assert_eq!(session.playhead_ticks(), TimelineTicks::new(5 * 120_000));
+        assert_eq!(
+            session.timeline_selection(),
+            &BTreeSet::from([TimelineItemId { track: 1, item: 0 }])
         );
     }
 

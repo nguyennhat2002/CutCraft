@@ -42,7 +42,11 @@ pub fn show(context: &Context, state: &mut AppState) {
                 .spacing([18.0, 6.0])
                 .show(ui, |ui| {
                     detail_row(ui, "Version", &format!("v{}", config::APP_VERSION));
-                    detail_row(ui, "Milestone", "M1 \u{2014} Home, Editor, Export UI");
+                    detail_row(
+                        ui,
+                        "Milestone",
+                        "M3-C \u{2014} Media probe & real frame preview",
+                    );
                     detail_row(ui, "UI framework", "egui / eframe 0.37 (wgpu)");
                 });
 
@@ -53,10 +57,13 @@ pub fn show(context: &Context, state: &mut AppState) {
             ui.add(
                 egui::Label::new(
                     RichText::new(
-                        "This build is a user-interface shell. Media import, decoding, \
-                         preview rendering, playback, timeline editing, project persistence, \
-                         and export are not implemented. Editing controls are disabled \
-                         placeholders, and temporary sessions are never saved to disk.",
+                        "This build supports native .cutcraft projects with exact tick timing, \
+                         Magnet state, an authoritative scrubbing playhead, Split-at-Playhead, and \
+                         real single-source H.264 frame preview. Preview media is explicitly bound \
+                         to one main-track clip for the session only; .cutcraft files store no media \
+                         path. Playback, audio, compositing, timeline media import, linked-media \
+                         movement, and export are not implemented. Preview uses a locally installed \
+                         FFmpeg CLI (not bundled). CapCut draft folders remain read-only.",
                     )
                     .size(11.0)
                     .color(Palette::TEXT_SECONDARY),
@@ -109,7 +116,7 @@ mod tests {
             let output = context.run_ui(input(), |ui| show(ui.ctx(), &mut state));
             for clipped in &output.shapes {
                 if let egui::Shape::Text(text) = &clipped.shape {
-                    disclaimer_visible |= text.galley.text().contains("Media import, decoding");
+                    disclaimer_visible |= text.galley.text().contains("real single-source H.264");
                 }
             }
             output.drop_without_applying_deltas();

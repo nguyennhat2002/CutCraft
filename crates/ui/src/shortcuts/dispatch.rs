@@ -221,12 +221,11 @@ mod tests {
     }
 
     #[test]
-    fn planned_commands_never_dispatch() {
+    fn implemented_split_dispatches_but_planned_playback_does_not() {
         let manager = ShortcutManager::default();
         assert_eq!(
             dispatch_event(&manager, runtime(), key_event(Key::S, Modifiers::NONE)),
-            None,
-            "Split at Playhead is planned"
+            Some(CommandId::SplitAtPlayhead)
         );
         assert_eq!(
             dispatch_event(&manager, runtime(), key_event(Key::Space, Modifiers::NONE)),

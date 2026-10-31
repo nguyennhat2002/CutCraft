@@ -1,3 +1,4 @@
+pub mod asset;
 pub mod command;
 pub mod player;
 pub mod project;

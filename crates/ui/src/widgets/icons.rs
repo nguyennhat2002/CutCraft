@@ -81,6 +81,7 @@ pub(crate) enum Icon {
     Split,
     Delete,
     Snap,
+    Magnet,
     Link,
     Menu,
     Crop,
@@ -111,7 +112,7 @@ pub(crate) enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 53] = [
+    pub(crate) const ALL: [Self; 54] = [
         Self::Home,
         Self::Projects,
         Self::Settings,
@@ -139,6 +140,7 @@ impl Icon {
         Self::Split,
         Self::Delete,
         Self::Snap,
+        Self::Magnet,
         Self::Link,
         Self::Menu,
         Self::Crop,
@@ -194,7 +196,8 @@ impl Icon {
             Self::Select => Lucide::MousePointer2,
             Self::Split => Lucide::Scissors,
             Self::Delete => Lucide::Trash,
-            Self::Snap => Lucide::Magnet,
+            Self::Snap => Lucide::Ruler,
+            Self::Magnet => Lucide::Magnet,
             Self::Link => Lucide::Link2,
             Self::Menu => Lucide::Menu,
             Self::Crop => Lucide::Crop,

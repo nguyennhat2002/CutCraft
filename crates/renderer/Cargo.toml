@@ -8,3 +8,4 @@ license.workspace = true
 capcut-core.workspace = true
 capcut-engine.workspace = true
 capcut-media.workspace = true
+wgpu.workspace = true

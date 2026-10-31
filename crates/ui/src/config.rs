@@ -64,12 +64,11 @@ pub const SHORTCUTS_DIALOG_MAX_WIDTH: f32 = 720.0;
 pub const SHORTCUTS_DIALOG_MIN_HEIGHT: f32 = 500.0;
 pub const SHORTCUTS_DIALOG_MAX_HEIGHT: f32 = 660.0;
 
-/// Preview placeholder frame-rate and playhead values.
+/// Preview placeholder frame-rate defaults for non-native/demo content.
 pub const PREVIEW_FPS_NUMERATOR: u32 = 30;
 pub const PREVIEW_FPS_DENOMINATOR: u32 = 1;
 
-/// Static placeholder playhead position and timeline view length.
-pub const PLAYHEAD_MILLIS: u64 = 0;
+/// Default timeline view length and horizontal zoom.
 pub const TIMELINE_DURATION_SECONDS: u64 = 180;
 pub const TIMELINE_PIXELS_PER_SECOND: f32 = 30.0;
 pub const TIMELINE_MIN_PIXELS_PER_SECOND: f32 = 4.0;

@@ -3,31 +3,55 @@
 //! The loaded state is an explicit synthetic QA frame. No media is decoded,
 //! imported, or mixed into the temporary project view.
 
+use std::sync::{Arc, Mutex};
+
 use egui::{
     pos2, vec2, Align2, Color32, CornerRadius, CursorIcon, FontId, Mesh, Painter, Rect, Response,
     Sense, Shape, Stroke, StrokeKind, Ui,
 };
 
+use capcut_renderer::PreviewRenderer;
+
 use crate::config;
 use crate::editor_state::{EditorSession, PreviewAspect};
+use crate::media_preview_state::{ClipPreviewStatus, MediaPreview};
 use crate::theme::{Palette, Radii};
-use crate::timecode::format_timecode;
+use crate::timecode::{format_timecode, format_timecode_ticks};
 use crate::timeline_state::TimelineDisplayMode;
 use crate::widgets::common::focus_ring;
 use crate::widgets::icons::{self, Icon, IconColors, IconSize};
+
+mod gpu_callback;
 
 const HEADER_HEIGHT: f32 = 42.0;
 const FOOTER_HEIGHT: f32 = 50.0;
 const DEMO_DURATION_MILLIS: u64 = 18_767;
 const DEMO_LABEL: &str = "DEMO FRAME";
 
-pub fn show(ui: &mut Ui, session: &mut EditorSession) {
+pub fn show(
+    ui: &mut Ui,
+    session: &mut EditorSession,
+    media: &MediaPreview,
+    gpu_renderer: Option<&Arc<Mutex<PreviewRenderer>>>,
+) {
     header(ui);
 
     let monitor_height = (ui.available_height() - FOOTER_HEIGHT).max(40.0);
-    let (monitor_area, _) =
+    let (monitor_area, monitor_response) =
         ui.allocate_exact_size(vec2(ui.available_width(), monitor_height), Sense::hover());
-    paint_monitor(ui, monitor_area, session);
+    let gpu_active = media.frame().is_some_and(|frame| {
+        gpu_renderer.is_some_and(|renderer| {
+            renderer
+                .lock()
+                .ok()
+                .is_some_and(|renderer| renderer.has_frame_for(frame))
+        })
+    });
+    let accessible = accessible_media_label(media, gpu_active);
+    monitor_response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::accesskit::Role::Image, true, accessible.clone())
+    });
+    paint_monitor(ui, monitor_area, session, media, gpu_renderer, gpu_active);
 
     footer(ui, session);
 }
@@ -42,7 +66,6 @@ fn header(ui: &mut Ui) {
         ui.scope_id().with("preview_menu"),
         Sense::hover(),
     );
-
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::ZERO, Palette::TOOLBAR_BG);
     painter.line_segment(
@@ -75,21 +98,106 @@ fn header(ui: &mut Ui) {
         .on_hover_text("Preview options are not implemented.");
 }
 
-fn paint_monitor(ui: &Ui, area: Rect, session: &EditorSession) {
+fn frame_aspect(width: u32, height: u32) -> Option<f32> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let aspect = width as f32 / height as f32;
+    aspect
+        .is_finite()
+        .then_some(aspect)
+        .filter(|aspect| *aspect > 0.0)
+}
+
+fn media_rate_label(rate: capcut_media::MediaRational) -> String {
+    if rate.denominator == 1 {
+        format!("{} fps", rate.numerator)
+    } else {
+        format!("{:.2} fps", rate.as_f64())
+    }
+}
+
+fn accessible_media_label(media: &MediaPreview, gpu_active: bool) -> String {
+    if let Some(frame) = media.frame() {
+        let render_path = if gpu_active { "GPU" } else { "EGUI fallback" };
+        return format!(
+            "Preview frame PTS {:.3}s {}x{} clip {} asset {} source {} generation {} render {}",
+            frame.pts.seconds_f64(),
+            frame.width,
+            frame.height,
+            frame.clip_tag,
+            frame.asset_tag,
+            frame.source_id,
+            frame.generation,
+            render_path
+        );
+    }
+    let status = match media.status() {
+        ClipPreviewStatus::NoProject => "No project loaded",
+        ClipPreviewStatus::NoActiveClip => "No active clip",
+        ClipPreviewStatus::ClipWithoutMedia => "Clip has no media",
+        ClipPreviewStatus::UnsupportedComposition => "Multiple visual layers active",
+        ClipPreviewStatus::UnsupportedVisualLayer => "Unsupported visual layer",
+        ClipPreviewStatus::AssetMissing => "Media offline",
+        ClipPreviewStatus::AssetChanged(_) => "Media changed - relink required",
+        ClipPreviewStatus::AssetUnreadable(_) => "Media unavailable",
+        ClipPreviewStatus::LoadingAsset => "Loading clip media",
+        ClipPreviewStatus::Seeking => "Decoding frame",
+        ClipPreviewStatus::Frame => "Frame ready",
+        ClipPreviewStatus::EndOfMedia => "End of source media",
+        ClipPreviewStatus::Failed(_) => "Preview unavailable",
+    };
+    format!("Preview status {status}")
+}
+
+fn paint_monitor(
+    ui: &Ui,
+    area: Rect,
+    session: &EditorSession,
+    media: &MediaPreview,
+    gpu_renderer: Option<&Arc<Mutex<PreviewRenderer>>>,
+    gpu_active: bool,
+) {
     let painter = ui.painter_at(area);
     painter.rect_filled(area, CornerRadius::ZERO, Palette::PANEL_BG);
 
     let padded = area.shrink2(vec2(10.0, 2.0));
-    let canvas = fit_preview_rect(padded, session.preview_aspect.ratio());
+    let decoded_aspect = media
+        .frame()
+        .and_then(|frame| frame_aspect(frame.width, frame.height));
+    let probe_aspect = media.probe().and_then(|probe| {
+        let (width, height) = probe.display_dimensions();
+        frame_aspect(width, height)
+    });
+    let aspect = decoded_aspect
+        .or(probe_aspect)
+        .unwrap_or_else(|| session.preview_aspect.ratio());
+    let canvas = fit_preview_rect(padded, aspect);
     if canvas.width() <= 1.0 || canvas.height() <= 1.0 {
         return;
     }
 
     painter.rect_filled(canvas, Radii::SMALL, Palette::CANVAS);
-    if session.timeline_display_mode == TimelineDisplayMode::VisualDemo {
-        paint_demo_frame(&painter, canvas);
-    } else {
-        paint_empty_frame(&painter, canvas);
+    let mut painted = false;
+    if gpu_active {
+        if let (Some(frame), Some(renderer)) = (media.frame(), gpu_renderer) {
+            paint_gpu_frame(ui, &painter, canvas, renderer, frame, media);
+            painted = true;
+        }
+    }
+    if !painted {
+        if let (Some(frame), Some(texture)) = (media.frame(), media.texture()) {
+            paint_decoded_frame(&painter, canvas, texture, frame, media);
+        } else if session.timeline_display_mode == TimelineDisplayMode::VisualDemo
+            && matches!(
+                media.status(),
+                ClipPreviewStatus::NoProject | ClipPreviewStatus::NoActiveClip
+            )
+        {
+            paint_demo_frame(&painter, canvas);
+        } else {
+            paint_media_state(&painter, canvas, media);
+        }
     }
     painter.rect_stroke(
         canvas,
@@ -99,7 +207,147 @@ fn paint_monitor(ui: &Ui, area: Rect, session: &EditorSession) {
     );
 }
 
-fn paint_empty_frame(painter: &Painter, canvas: Rect) {
+fn paint_decoded_frame(
+    painter: &Painter,
+    canvas: Rect,
+    texture: &egui::TextureHandle,
+    frame: &capcut_media::DecodedFrame,
+    media: &MediaPreview,
+) {
+    let frame_rect = canvas.shrink(1.0);
+    if frame_rect.width() <= 0.0 || frame_rect.height() <= 0.0 {
+        return;
+    }
+    let mut mesh = Mesh::with_texture(texture.id());
+    mesh.add_rect_with_uv(
+        frame_rect,
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+        Color32::WHITE,
+    );
+    painter.add(Shape::mesh(mesh));
+    paint_frame_badge(painter, canvas, frame, media, "EGUI FALLBACK");
+}
+
+fn paint_gpu_frame(
+    ui: &Ui,
+    painter: &Painter,
+    canvas: Rect,
+    renderer: &Arc<Mutex<PreviewRenderer>>,
+    frame: &capcut_media::DecodedFrame,
+    media: &MediaPreview,
+) {
+    if canvas.width() <= 1.0 || canvas.height() <= 1.0 {
+        return;
+    }
+    gpu_callback::add_gpu_preview(ui, canvas, renderer);
+    paint_frame_badge(painter, canvas, frame, media, "GPU PREVIEW");
+}
+
+fn paint_frame_badge(
+    painter: &Painter,
+    canvas: Rect,
+    frame: &capcut_media::DecodedFrame,
+    media: &MediaPreview,
+    render_path: &str,
+) {
+    let probe = media.probe();
+    let file_name = probe
+        .and_then(|probe| probe.path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "media".to_owned());
+    let rate = probe
+        .and_then(|probe| probe.nominal_frame_rate)
+        .map(media_rate_label)
+        .unwrap_or_else(|| "unknown fps".to_owned());
+    let badge = format!(
+        "{}  \u{00b7}  {}\nclip {} / asset {}  \u{00b7}  {}x{}  \u{00b7}  {}\nPTS {:.3}s @ {}",
+        render_path,
+        truncate_label(&file_name, 28),
+        frame.clip_tag,
+        frame.asset_tag,
+        frame.width,
+        frame.height,
+        rate,
+        frame.pts.seconds_f64(),
+        frame.pts.timebase
+    );
+    let badge_painter = painter.with_clip_rect(canvas);
+    let font = FontId::monospace(7.5);
+    let galley = badge_painter.layout_no_wrap(badge, font, Palette::TEXT_PRIMARY);
+    let badge_rect = Rect::from_min_size(
+        canvas.left_top() + vec2(7.0, 7.0),
+        galley.size() + vec2(12.0, 8.0),
+    );
+    badge_painter.rect_filled(
+        badge_rect,
+        Radii::SMALL,
+        Color32::from_rgba_unmultiplied(4, 8, 10, 185),
+    );
+    badge_painter.galley(
+        badge_rect.min + vec2(6.0, 4.0),
+        galley,
+        Palette::TEXT_PRIMARY,
+    );
+}
+
+fn paint_media_state(painter: &Painter, canvas: Rect, media: &MediaPreview) {
+    let (title, subtitle) = match media.status() {
+        ClipPreviewStatus::NoProject => (
+            "No project loaded".to_owned(),
+            "Create or open a native project to preview Timeline clips".to_owned(),
+        ),
+        ClipPreviewStatus::NoActiveClip => (
+            "No active clip".to_owned(),
+            "The playhead is in an empty Timeline gap".to_owned(),
+        ),
+        ClipPreviewStatus::ClipWithoutMedia => (
+            "Clip has no media".to_owned(),
+            "This native clip has no registered media asset".to_owned(),
+        ),
+        ClipPreviewStatus::UnsupportedComposition => (
+            "Multiple visual layers active".to_owned(),
+            "M3-D Preview supports one visual source at a time and does not composite layers"
+                .to_owned(),
+        ),
+        ClipPreviewStatus::UnsupportedVisualLayer => (
+            "Unsupported visual layer".to_owned(),
+            "M3-D Preview supports video clips only".to_owned(),
+        ),
+        ClipPreviewStatus::AssetMissing => (
+            "Media offline".to_owned(),
+            "Relink the missing media in the Media Pool".to_owned(),
+        ),
+        ClipPreviewStatus::AssetChanged(message) => (
+            "Media changed - relink required".to_owned(),
+            truncate_label(message, 96),
+        ),
+        ClipPreviewStatus::AssetUnreadable(message) => {
+            ("Media unavailable".to_owned(), truncate_label(message, 96))
+        }
+        ClipPreviewStatus::LoadingAsset => (
+            "Loading clip media...".to_owned(),
+            "Opening the active clip's registered source".to_owned(),
+        ),
+        ClipPreviewStatus::Seeking => (
+            "Decoding frame...".to_owned(),
+            "Waiting for the bounded media worker".to_owned(),
+        ),
+        ClipPreviewStatus::EndOfMedia => (
+            "End of source media".to_owned(),
+            "No frame exists at this source position".to_owned(),
+        ),
+        ClipPreviewStatus::Failed(error) => {
+            ("Preview unavailable".to_owned(), truncate_label(error, 96))
+        }
+        ClipPreviewStatus::Frame => (
+            "Frame not uploaded".to_owned(),
+            "The decoded frame is waiting for a texture upload".to_owned(),
+        ),
+    };
+    paint_empty_frame(painter, canvas, &title, &subtitle);
+}
+
+fn paint_empty_frame(painter: &Painter, canvas: Rect, title: &str, subtitle: &str) {
     if canvas.height() < 90.0 {
         return;
     }
@@ -118,17 +366,29 @@ fn paint_empty_frame(painter: &Painter, canvas: Rect) {
     painter.text(
         center + vec2(0.0, 16.0),
         Align2::CENTER_CENTER,
-        "No media loaded",
+        title,
         FontId::proportional(12.0),
         Palette::TEXT_SECONDARY,
     );
     painter.text(
         center + vec2(0.0, 32.0),
         Align2::CENTER_CENTER,
-        "Preview rendering is not implemented",
+        subtitle,
         FontId::proportional(8.5),
         Palette::TEXT_DISABLED,
     );
+}
+
+fn truncate_label(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    let mut truncated = text
+        .chars()
+        .take(limit.saturating_sub(1))
+        .collect::<String>();
+    truncated.push('\u{2026}');
+    truncated
 }
 
 fn paint_demo_frame(painter: &Painter, canvas: Rect) {
@@ -337,8 +597,8 @@ fn footer(ui: &mut Ui, session: &mut EditorSession) {
 
     let painter = ui.painter_at(rect);
     let font = FontId::monospace(time_font_size);
-    let current = timecode_label(0);
-    let total = timecode_label(preview_total_millis(session));
+    let current = current_timecode(session);
+    let total = total_timecode(session);
     let current_galley = painter.layout_no_wrap(current, font.clone(), Palette::ACCENT);
     let slash_galley = painter.layout_no_wrap("/".to_owned(), font.clone(), Palette::TEXT_MUTED);
     let total_galley = painter.layout_no_wrap(total, font, Palette::TEXT_SECONDARY);
@@ -379,20 +639,40 @@ fn footer(ui: &mut Ui, session: &mut EditorSession) {
         pos2(left_start, rect.top() + 10.0),
         pos2(x.max(left_start + 1.0), rect.bottom() - 10.0),
     );
-    ui.interact(
+    let response = ui.interact(
         time_rect,
         ui.scope_id().with("preview_timecode"),
         Sense::hover(),
-    )
-    .on_hover_text("Static preview timecode; playback is not implemented.");
+    );
+    let accessible = if session.native_timeline_active() {
+        format!("Playhead ticks {}", session.playhead_ticks().get())
+    } else {
+        "Playhead unavailable".to_owned()
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::accesskit::Role::Label, true, accessible.clone())
+    });
+    response.on_hover_text(
+        "Authoritative playhead timecode. The active Timeline clip's registered media frame is decoded asynchronously; audio playback and compositing are not implemented.",
+    );
 }
 
-fn preview_total_millis(session: &EditorSession) -> u64 {
-    if session.timeline_display_mode == TimelineDisplayMode::VisualDemo {
-        DEMO_DURATION_MILLIS
-    } else {
-        0
+fn current_timecode(session: &EditorSession) -> String {
+    match (session.native_frame_rate(), session.native_content_end()) {
+        (Some(fps), Some(_)) => format_timecode_ticks(session.playhead_ticks(), fps)
+            .unwrap_or_else(|| "--:--:--:--".to_owned()),
+        _ => timecode_label(0),
     }
+}
+
+fn total_timecode(session: &EditorSession) -> String {
+    if let (Some(fps), Some(end)) = (session.native_frame_rate(), session.native_content_end()) {
+        return format_timecode_ticks(end, fps).unwrap_or_else(|| "--:--:--:--".to_owned());
+    }
+    if session.timeline_display_mode == TimelineDisplayMode::VisualDemo {
+        return timecode_label(DEMO_DURATION_MILLIS);
+    }
+    timecode_label(0)
 }
 
 fn timecode_label(millis: u64) -> String {
@@ -633,7 +913,10 @@ mod tests {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(width, height))),
             ..Default::default()
         };
-        let output = context.run_ui(input, |ui| show(ui, session));
+        let media = MediaPreview::default();
+        let output = context.run_ui(input, |ui| {
+            show(ui, session, &media, None);
+        });
         let text = output
             .shapes
             .iter()
@@ -644,6 +927,17 @@ mod tests {
             .collect();
         output.drop_without_applying_deltas();
         text
+    }
+
+    #[test]
+    fn native_preview_shows_authoritative_playhead_and_project_total() {
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        assert!(session.set_playhead_ticks(capcut_core::time::TimelineTicks::new(5 * 120_000)));
+        let text = labels(&mut session, 520.0, 520.0);
+        assert!(text.iter().any(|line| line == "00:00:05:00"), "{text:?}");
+        assert!(text.iter().any(|line| line == "00:00:35:00"), "{text:?}");
+        assert!(text.iter().any(|line| line == "No project loaded"));
+        assert!(!text.iter().any(|line| line.contains("DEMO FRAME")));
     }
 
     #[test]
@@ -681,6 +975,55 @@ mod tests {
     }
 
     #[test]
+    fn decoded_frame_replaces_the_placeholder_with_a_texture_mesh() {
+        let context = egui::Context::default();
+        crate::theme::configure(&context);
+        let timebase = capcut_media::MediaTimebase::new(1, 15_360).expect("timebase");
+        let target = capcut_media::MediaTimestamp::new(0, timebase);
+        let mut media = MediaPreview::default();
+        media.inject_displayed_frame_for_test(capcut_media::DecodedFrame {
+            source_id: 1,
+            generation: 1,
+            clip_tag: 1,
+            asset_tag: 1,
+            width: 2,
+            height: 1,
+            format: capcut_media::PixelFormat::Rgba8,
+            rgba: vec![255, 0, 0, 255, 0, 255, 0, 255],
+            pts: target,
+            requested_target: target,
+            decode_elapsed_ms: 1,
+        });
+        assert!(media.ensure_texture(&context));
+        let texture_id = media.texture().expect("texture").id();
+        let mut session = EditorSession::with_native_qa().expect("qa");
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(520.0, 520.0))),
+            ..Default::default()
+        };
+        let output = context.run_ui(input, |ui| {
+            show(ui, &mut session, &media, None);
+        });
+        let text = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let textured = output.shapes.iter().any(
+            |clipped| matches!(&clipped.shape, Shape::Mesh(mesh) if mesh.texture_id == texture_id),
+        );
+        output.drop_without_applying_deltas();
+        assert!(textured, "decoded frame must paint the uploaded texture");
+        assert!(
+            !text.iter().any(|line| line == "No media loaded"),
+            "{text:?}"
+        );
+    }
+
+    #[test]
     fn preview_renders_headlessly_and_aspect_selection_is_stored() {
         let context = egui::Context::default();
         crate::theme::configure(&context);
@@ -692,7 +1035,10 @@ mod tests {
             preview_aspect: PreviewAspect::Portrait,
             ..EditorSession::default()
         };
-        let output = context.run_ui(input, |ui| show(ui, &mut session));
+        let media = MediaPreview::default();
+        let output = context.run_ui(input, |ui| {
+            show(ui, &mut session, &media, None);
+        });
 
         assert!(!output.shapes.is_empty());
         assert_eq!(session.preview_aspect, PreviewAspect::Portrait);

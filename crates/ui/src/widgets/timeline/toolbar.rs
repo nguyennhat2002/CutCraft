@@ -102,6 +102,7 @@ pub(crate) enum Tool {
     Options,
     FitTimeline,
     Snapping,
+    Magnet,
     LinkedSelection,
     More,
     ZoomIn,
@@ -110,7 +111,7 @@ pub(crate) enum Tool {
 
 impl Tool {
     #[cfg(test)]
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::AddImport,
         Self::Select,
         Self::Undo,
@@ -134,6 +135,7 @@ impl Tool {
         Self::Options,
         Self::FitTimeline,
         Self::Snapping,
+        Self::Magnet,
         Self::LinkedSelection,
         Self::More,
         Self::ZoomIn,
@@ -165,6 +167,7 @@ impl Tool {
             Self::Options => "Timeline settings",
             Self::FitTimeline => "Fit timeline",
             Self::Snapping => "Snapping",
+            Self::Magnet => "Main Track Magnet",
             Self::LinkedSelection => "Linked selection",
             Self::More => "More timeline tools",
             Self::ZoomIn => "Zoom in",
@@ -176,10 +179,10 @@ impl Tool {
         match self {
             Self::AddImport => "Media import is not implemented.",
             Self::Select => "Timeline item selection works; selection modes are not implemented.",
-            Self::Undo | Self::Redo => "Undo and redo require editor commands.",
-            Self::Split => "Splitting requires timeline commands.",
+            Self::Undo | Self::Redo => "Undo and redo require a native project with edit history.",
+            Self::Split => "Split the selected native main-track clip at the playhead.",
             Self::TrimIn | Self::TrimOut => "Trimming requires timeline commands.",
-            Self::Delete => "Deleting items requires a timeline command.",
+            Self::Delete => "Delete the single selected native clip.",
             Self::Lock => "Clip protection is planned.",
             Self::Crop => "Crop and transform are planned.",
             Self::DetachAudio => "Detaching audio is planned.",
@@ -195,6 +198,9 @@ impl Tool {
             Self::Options => "Timeline display preferences.",
             Self::FitTimeline => "Fit-to-window is not implemented.",
             Self::Snapping => "Visual preference only. Snapping behavior is not implemented.",
+            Self::Magnet => {
+                "Ripple supported edits on the main video track. Independent from Snapping."
+            }
             Self::LinkedSelection => {
                 "Visual preference only. Linked-selection behavior is not implemented."
             }
@@ -205,11 +211,10 @@ impl Tool {
 
     pub fn status(self) -> ToolStatus {
         match self {
-            Self::Snapping | Self::LinkedSelection => ToolStatus::UiPreference,
+            Self::Snapping | Self::Magnet | Self::LinkedSelection => ToolStatus::UiPreference,
             Self::More | Self::Options | Self::ZoomIn | Self::ZoomOut => ToolStatus::Implemented,
-            Self::Undo | Self::Redo | Self::Split | Self::Delete | Self::Select => {
-                ToolStatus::Disabled
-            }
+            Self::Undo | Self::Redo | Self::Split | Self::Delete => ToolStatus::Implemented,
+            Self::Select => ToolStatus::Disabled,
             Self::AddImport
             | Self::TrimIn
             | Self::TrimOut
@@ -254,6 +259,7 @@ impl Tool {
             Self::Options => Icon::List,
             Self::FitTimeline => Icon::Fit,
             Self::Snapping => Icon::Snap,
+            Self::Magnet => Icon::Magnet,
             Self::LinkedSelection => Icon::Link,
             Self::More => Icon::More,
             Self::ZoomIn => Icon::ZoomIn,
@@ -326,7 +332,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
         |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.add_space(4.0);
-            left_groups(ui, density, selection_kind, shortcuts);
+            left_groups(ui, density, selection_kind, session, shortcuts);
 
             if session.timeline_display_mode == TimelineDisplayMode::VisualDemo
                 && density == Density::Full
@@ -334,6 +340,22 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                 ui.add_space(6.0);
                 common::badge(ui, "Visual demo", Palette::WARNING)
                     .on_hover_text("Synthetic timeline for visual QA. Not project data.");
+            }
+            if let Some(document) = session.native_document().filter(|_| density == Density::Full) {
+                ui.add_space(6.0);
+                if document.synthetic_qa() {
+                    common::badge(ui, "Native QA project", Palette::WARNING).on_hover_text(
+                        "Synthetic native project for Magnet QA. Not production data.",
+                    );
+                } else {
+                    common::badge(ui, "Native project", Palette::ACCENT).on_hover_text(
+                        "Native .cutcraft project. CapCut drafts remain a separate read-only path.",
+                    );
+                }
+                if let Some(error) = &session.native_error {
+                    common::badge(ui, "Native edit error", Palette::ERROR)
+                        .on_hover_text(error.clone());
+                }
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -365,6 +387,25 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                 if toggle_tool(ui, Tool::Snapping, session.timeline_snapping, shortcuts).clicked() {
                     session.execute_shortcut_command(CommandId::SnappingToggle);
                 }
+                let magnet_available = session.native_timeline_active();
+                let magnet_response = ui
+                    .add_enabled_ui(magnet_available, |ui| {
+                        toggle_tool(
+                            ui,
+                            Tool::Magnet,
+                            session.main_track_magnet_enabled(),
+                            shortcuts,
+                        )
+                    })
+                    .inner;
+                if magnet_response.clicked() {
+                    session.toggle_main_track_magnet();
+                }
+                if magnet_available {
+                    magnet_response.on_hover_text(
+                        "Main Track Magnet — Closes main-track gaps and keeps supported edits continuous.",
+                    );
+                }
                 if density == Density::Full {
                     separator(ui);
                     let _ = disabled_tool(ui, Tool::Voiceover, shortcuts);
@@ -378,14 +419,36 @@ fn left_groups(
     ui: &mut Ui,
     density: Density,
     selection: Option<TimelineSelectionKind>,
+    session: &mut EditorSession,
     shortcuts: &ShortcutManager,
 ) {
     let _ = disabled_tool(ui, Tool::AddImport, shortcuts);
     separator(ui);
     dropdown_tool(ui, Tool::Select, shortcuts);
     separator(ui);
-    let _ = disabled_tool(ui, Tool::Undo, shortcuts);
-    let _ = disabled_tool(ui, Tool::Redo, shortcuts);
+    if session.native_timeline_active() {
+        if native_action_tool(
+            ui,
+            Tool::Undo,
+            session.can_undo_native(),
+            "Undo native edit",
+            shortcuts,
+        ) {
+            let _ = session.undo_native();
+        }
+        if native_action_tool(
+            ui,
+            Tool::Redo,
+            session.can_redo_native(),
+            "Redo native edit",
+            shortcuts,
+        ) {
+            let _ = session.redo_native();
+        }
+    } else {
+        let _ = disabled_tool(ui, Tool::Undo, shortcuts);
+        let _ = disabled_tool(ui, Tool::Redo, shortcuts);
+    }
 
     let Some(selection) = selection else {
         return;
@@ -393,7 +456,29 @@ fn left_groups(
     separator(ui);
     if density == Density::Compact {
         for tool in COMPACT_CONTEXTUAL_TOOLS {
-            let _ = disabled_tool(ui, tool, shortcuts);
+            if tool == Tool::Delete && session.native_timeline_active() {
+                if native_action_tool(
+                    ui,
+                    tool,
+                    session.can_delete_native(),
+                    "Delete the single selected native clip",
+                    shortcuts,
+                ) {
+                    let _ = session.delete_selected_native();
+                }
+            } else if tool == Tool::Split && session.native_timeline_active() {
+                if native_action_tool(
+                    ui,
+                    tool,
+                    session.can_split_at_playhead(),
+                    "Split the selected native main-track clip at the playhead",
+                    shortcuts,
+                ) {
+                    let _ = session.split_at_playhead();
+                }
+            } else {
+                let _ = disabled_tool(ui, tool, shortcuts);
+            }
         }
         return;
     }
@@ -401,7 +486,29 @@ fn left_groups(
         .into_iter()
         .filter(|tool| tool.applies_to(selection))
     {
-        let _ = disabled_tool(ui, tool, shortcuts);
+        if tool == Tool::Delete && session.native_timeline_active() {
+            if native_action_tool(
+                ui,
+                tool,
+                session.can_delete_native(),
+                "Delete the single selected native clip",
+                shortcuts,
+            ) {
+                let _ = session.delete_selected_native();
+            }
+        } else if tool == Tool::Split && session.native_timeline_active() {
+            if native_action_tool(
+                ui,
+                tool,
+                session.can_split_at_playhead(),
+                "Split the selected native main-track clip at the playhead",
+                shortcuts,
+            ) {
+                let _ = session.split_at_playhead();
+            }
+        } else {
+            let _ = disabled_tool(ui, tool, shortcuts);
+        }
     }
     let media = MEDIA_TOOLS
         .into_iter()
@@ -427,6 +534,30 @@ fn separator(ui: &mut Ui) {
         ],
         Stroke::new(1.0, Palette::BORDER),
     );
+}
+
+fn native_action_tool(
+    ui: &mut Ui,
+    tool: Tool,
+    enabled: bool,
+    hint: &str,
+    shortcuts: &ShortcutManager,
+) -> bool {
+    if enabled {
+        let response = enabled_icon_button(ui, tool.icon(), tool.label());
+        let clicked = response.clicked();
+        let _ = response.on_hover_text(format!(
+            "{} — {}{}",
+            tool.label(),
+            hint,
+            shortcut_suffix(shortcuts, tool)
+        ));
+        clicked
+    } else {
+        let response = disabled_tool(ui, tool, shortcuts);
+        let _ = response.on_hover_text(format!("{} — unavailable: {hint}", tool.label()));
+        false
+    }
 }
 
 fn disabled_tool(ui: &mut Ui, tool: Tool, shortcuts: &ShortcutManager) -> egui::Response {
@@ -834,11 +965,16 @@ mod tests {
             if matches!(
                 tool,
                 Tool::Snapping
+                    | Tool::Magnet
                     | Tool::LinkedSelection
                     | Tool::More
                     | Tool::Options
                     | Tool::ZoomIn
                     | Tool::ZoomOut
+                    | Tool::Undo
+                    | Tool::Redo
+                    | Tool::Split
+                    | Tool::Delete
             ) {
                 continue;
             }
@@ -849,17 +985,13 @@ mod tests {
                 tool.label()
             );
         }
-        for tool in [
-            Tool::Undo,
-            Tool::Redo,
-            Tool::Split,
-            Tool::Delete,
-            Tool::Select,
-        ] {
-            assert_eq!(tool.status(), ToolStatus::Disabled);
+        for tool in [Tool::Undo, Tool::Redo, Tool::Split, Tool::Delete] {
+            assert_eq!(tool.status(), ToolStatus::Implemented);
         }
+        assert_eq!(Tool::Select.status(), ToolStatus::Disabled);
         assert_eq!(Tool::AddImport.status(), ToolStatus::Planned);
         assert_eq!(Tool::Snapping.status(), ToolStatus::UiPreference);
+        assert_eq!(Tool::Magnet.status(), ToolStatus::UiPreference);
         assert_eq!(Tool::LinkedSelection.status(), ToolStatus::UiPreference);
         assert_eq!(Tool::ZoomIn.status(), ToolStatus::Implemented);
         assert_eq!(Tool::More.status(), ToolStatus::Implemented);
@@ -879,6 +1011,7 @@ mod tests {
             Tool::Undo,
             Tool::Redo,
             Tool::Snapping,
+            Tool::Magnet,
             Tool::LinkedSelection,
             Tool::ZoomIn,
             Tool::ZoomOut,
@@ -1051,17 +1184,15 @@ mod tests {
     }
 
     #[test]
-    fn undo_and_redo_remain_disabled_and_outside_the_contextual_group() {
+    fn native_undo_and_redo_are_registered_outside_the_contextual_group() {
         let mut session = populated_session();
-        assert_eq!(Tool::Undo.status(), ToolStatus::Disabled);
-        assert_eq!(Tool::Redo.status(), ToolStatus::Disabled);
+        assert_eq!(Tool::Undo.status(), ToolStatus::Implemented);
+        assert_eq!(Tool::Redo.status(), ToolStatus::Implemented);
 
         assert!(session.select_timeline_item(VIDEO, false));
         let tools = contextual_tools(session.timeline_selection_context().kind());
         assert!(!tools.contains(&Tool::Undo));
         assert!(!tools.contains(&Tool::Redo));
-        assert_eq!(Tool::Undo.status(), ToolStatus::Disabled);
-        assert_eq!(Tool::Redo.status(), ToolStatus::Disabled);
     }
 
     #[test]

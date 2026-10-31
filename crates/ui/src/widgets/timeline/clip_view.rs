@@ -258,7 +258,7 @@ fn paint_missing_media(painter: &Painter, body: Rect, border: Color32) {
         painter.text(
             pos2(body.left() + 6.0, body.top() + 6.0),
             Align2::LEFT_TOP,
-            "Preview unavailable",
+            "Thumbnail unavailable",
             FontId::proportional(8.0),
             Palette::TEXT_DISABLED,
         );

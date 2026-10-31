@@ -21,7 +21,7 @@ Consult these files as relevant:
 
 ### Repository reality — do not misrepresent it
 
-CutCraft is currently an **early-stage Rust application with a desktop UI shell**, not a functional video editor. `cargo run -p capcut-editor` opens a dark Home screen; Create Project enters a temporary in-memory Editor with placeholder library tabs, Preview, Inspector, Timeline, and project bar, and the top bar opens a settings-only Export dialog. Media import, decoding, video rendering, playback, timeline editing, CapCut draft compatibility, persistence, and export encoding are **not implemented**, and their controls are disabled. Some module files contain comments only. Do not describe placeholders or a passing compile as working editor features.
+CutCraft is currently an **early-stage Rust application with a native project/timeline subset, managed project AutoSave, persistent media assets, and a desktop UI shell**, not a complete video editor. `cargo run -p capcut-editor` opens a dark Home screen; Create Project immediately creates and persists a managed native project and enters the Editor with real Media Pool assets, a clip-aware single-frame Preview, Inspector, Timeline, and project bar. Native `.cutcraft` projects are schema v2 and can be created, edited with the supported command subset, AutoSaved, discovered on Home, renamed/duplicated, opened, and edited again while preserving exact tick timing, stable project/track/clip/asset IDs, Magnet state, and allocator high-water marks; v1 files migrate in memory and are not rewritten merely by opening. Media Pool import probes a local H.264 video through a runtime-discovered FFmpeg CLI, registers the file in place as a project asset (never copies media bytes), and can append it to the main track. M4-A adds a renderer-owned single-layer wgpu Preview that reuses eframe's existing device/queue, preserves clip/PTS identity and aspect/orientation, bounds texture resources, and falls back to the egui texture path when GPU preview is unavailable. The Preview resolves the active non-audio clip through its asset and displays real decoded frames at the playhead with generation-based stale-result suppression; gaps, clip-less media, offline/changed/unreadable files, and multiple active visual layers are reported explicitly, and relinking preserves asset identity. AutoSave uses a bounded worker and generation-safe saves with visible status, navigation/exit flush, failure preservation, and external-conflict pause. M3-D.1 adds a separate bounded one-slot recovery snapshot (checksum-validated, never replacing the primary automatically), explicit restore as a new managed project, and a Save Recovery Copy route for external conflicts. There is **no AutoRecovery journal** and AutoSave must not be described as crash-proof; recovery cannot exist for edits made before its snapshot was published, and there is no OS-level multi-process lock. FFmpeg is not bundled or linked (probe/decode processes have hard timeouts), no audio, playback, compositing, hardware decode, or export is implemented, and inactive project rename/duplicate run synchronously in the library. Linked-media movement, nested editing, CapCut draft compatibility, and export encoding are **not implemented**, and their controls are disabled or explicitly typed as unsupported. CapCut draft folders remain a separate read-only compatibility path and are never AutoSaved by the native writer. Some module files contain comments only. Do not describe placeholders or a passing compile as working editor features.
 
 The workspace uses Rust **1.97.1**, edition **2021**, and the project declares **MIT OR Apache-2.0** licensing. UI dependencies are pinned to `egui`/`eframe` 0.37.0 under ADR-0001 and must stay out of lower-level crates. Verify the repository manifests before changing these assumptions. Platform priority is **Windows desktop**; other platforms are future goals unless the task says otherwise.
 
@@ -63,7 +63,7 @@ Each public API needs explicit ownership and error semantics. Prefer small, test
 
 ## 5. Media, GPU, and concurrency
 
-- **Never assume an FFmpeg, GPU, or hardware-decoding integration is already available.** Select actual bindings, versions, licenses, and Windows deployment requirements through an ADR before introducing them.
+- **Never assume an FFmpeg, GPU, or hardware-decoding integration is already available.** ADR-0005 documents a runtime-discovered local FFmpeg CLI adapter used by the current probe/decode path; it is not bundled, linked, or a distribution/licensing decision. New bindings, versions, hardware decode, or shipping plans still require an ADR.
 - Keep decoding off the UI thread. Maintain an explicit frame type with dimensions, format, PTS/timebase, owner, and frame lifetime. Do not retain a borrowed decoder buffer beyond its documented validity.
 - Prefer bounded channels and cancellation for seek/playback; stale seek results must not overwrite newer preview requests.
 - Separate decode, scheduling, color conversion, composition, and presentation. A frame being decoded is not proof it reached the screen. Do not call telemetry callbacks a scheduler.
@@ -93,6 +93,11 @@ cargo fmt --all -- --check --config-path .config/rustfmt.toml
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo check --workspace
+
+# Separate media-enabled gate (requires local FFmpeg/FFprobe and H.264 encoder)
+$env:CUTCRAFT_REQUIRE_MEDIA = "1"
+cargo test -p capcut-media --test media_pipeline -- --nocapture
+Remove-Item Env:CUTCRAFT_REQUIRE_MEDIA
 ```
 
 Use `cargo run -p capcut-editor` only when actually exercising the app. The repo currently has an `xtask` skeleton; do **not** claim `cargo xtask ci`, `cargo xtask assets`, or layer-check automation works until implemented. The GitHub Actions workflow is configured, but a configuration file is not proof of a successful CI run.
