@@ -14,6 +14,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # Detect-only guard: scans the tracked file list plus tracked bytes against
+      # digest-held rules and fails the job on a violation without editing anything.
+      # It covers known contamination classes, not every possible private string, so
+      # run `cargo run -p xtask -- protect --all-files` locally before staging.
+      - name: Research-contamination guard
+        run: cargo run -p xtask -- protect --expect-origin https://github.com/nguyennhat2002/CutCraft.git
       - name: Format
         run: cargo fmt --all -- --check --config-path .config/rustfmt.toml
       - name: Clippy

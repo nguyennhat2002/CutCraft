@@ -1,1 +1,3 @@
 /target/
+# A7 guardrail local-only rule files (never commit private identifiers)
+xtask/rules/*.local

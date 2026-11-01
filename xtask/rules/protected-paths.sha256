@@ -1,0 +1,20 @@
+# A7 guardrail rules - detect only, never mutate.
+# Each `path` value is the SHA-256 of a normalised (lowercase, forward-slash)
+# prohibited path prefix; the digest form keeps the prohibited names themselves
+# out of the public repository and out of CI logs.
+path da2333df452aabec1d3547a3d0ea6183378afced2fa774e7f8ed6f072a501927
+path 390202b3c7b40c0bac88a5ca920a3bb2c355ded2ff1f71d2e6f22473cd9f6f03
+path bf5332fdff016b351d3927016cba0c588ea7bcc235529a5b522a933808d91249
+path 5785cd75584096d2665d0abd1fbf355173112f3b69630b1aa536d492ef6d749b
+path 7a57e7cfcc7fb698f47cf8a72ea1f04ba703757bd39583d807f563666ef3f46a
+path ba98ff37a227f92cf057f0ad1addf981532bd6931a047eafe4d615b50a7411a0
+path e14f717865bba84fe9dcaad4e29fce67e31aabf49be9b4a44fa9eec44da74d7d
+path 3672100d780398d595025e75fc0fa20be4d7656c674b9900ce60959bf1c3a28b
+path f3cd7b6c97a7f9f4ddd8faa2892cbf2e4eb75cbded707cd926c60ee3bb71996b
+path 212d06ef65922f5e8d8cbc179aff57ca58a4b927ea3eb8f155a8d0bb09b8a63a
+path 164c9461e29ff4c361a87d87748dc77154d643fccd640a5aebf3d1fd8c2aeb28
+
+# Generic structural rules: no private identifier appears here.
+content c:\users\
+content onedrive
+content redacted-
