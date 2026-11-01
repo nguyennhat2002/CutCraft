@@ -1,6 +1,6 @@
 # CutCraft — Testing, CI and Verification
 
-> **Current status:** The repository contains a GitHub Actions configuration and a tested egui/eframe editor with native `.cutcraft` schema v2 persistence (M3-A/M3-D), managed project AutoSave, persistent media assets, bounded recovery snapshots and external-conflict preservation (M3-D.1), an authoritative playhead/split path, a bounded H.264 FFmpeg-CLI probe/decode/clip-aware single-frame Preview, and an implemented renderer-owned single-layer wgpu Preview with egui fallback (M4-A/M4-A.1). Playback, audio and encoding are not implemented, and the GPU renderer is a one-layer Preview rather than a compositor. AutoRecovery is bounded snapshot recovery, not a journal and not a power-loss guarantee. Tests and benchmarks described here are future requirements unless explicitly recorded as executed.
+> **Current status:** The repository contains a GitHub Actions configuration and a tested egui/eframe editor with native `.cutcraft` schema v2 persistence (M3-A/M3-D), managed project AutoSave, persistent media assets, bounded recovery snapshots and external-conflict preservation (M3-D.1), an authoritative playhead/split path, a bounded H.264 FFmpeg-CLI probe/decode/clip-aware single-frame Preview, and a renderer-owned single-layer wgpu Preview with egui fallback (M4-A/M4-A.1). Playback, audio and encoding are not implemented, and the GPU renderer is a one-layer Preview rather than a compositor. AutoRecovery is bounded snapshot recovery, not a journal and not a power-loss guarantee. Tests and benchmarks described here are future requirements unless explicitly recorded as executed.
 
 ## 1. Current commands
 
@@ -27,11 +27,11 @@ cargo test -p capcut-media --test media_pipeline -- --nocapture
 Remove-Item Env:CUTCRAFT_REQUIRE_MEDIA
 ```
 
-In this mode missing tools, probe/decode fixture generation failure, or a missing H.264 encoder fails the run. Record the exact executable names and `-version` output printed by the gate. The two `capcut-format` private-fixture tests remain intentionally ignored unless `REDACTED-PRIVATE-FIXTURE-ENV` (and the copy destination for the copy test) are supplied; they are separate from the media gate.
+In this mode missing tools, probe/decode fixture generation failure, or a missing H.264 encoder fails the run. Record the exact executable names and `-version` output printed by the gate. Two workspace tests are intentionally ignored by default because they require a private fixture supplied out-of-band by the owner; they are separate from the media gate and are not part of any published compatibility claim.
 
 ### Current UI shell checks (M1.2)
 
-Automated (M1.2 historical run: 70 tests; the current UI suite is 305 tests):
+Automated (M1.2 historical run: 70 tests; the current UI suite is 312 tests):
 
 - headless Home, Projects, Settings, Editor, and Export dialog rendering at
   960×600, 1080×720, and 1600×900 as applicable;
@@ -225,7 +225,7 @@ Automated `capcut-media` tests cover hard process timeouts in addition to the ex
 
 **Real Windows M3-D.1 QA (2026-10-31, `target/m3d1-qa/`):** force-terminated at editor generation 5 while the primary remained generation 4; relaunch detected the validated candidate and Restore as New Project produced a distinct ProjectId, generation-0 file, 3 preserved clips, same asset/clip IDs and exact ticks, unchanged original primary SHA-256, and consumed recovery only after success. External modification produced Conflict; Save Recovery Copy published a new ProjectId with the same 3 clips while preserving external bytes. Stale generation-3 recovery vs primary generation 4 was ignored and retained; corrupt recovery produced a warning and no Restore; both primaries opened unchanged. A 30-hour abandoned staging file was removed on open, and graceful close/reopen passed. Exact project IDs, names, generations, file paths, stderr frame logs, and screenshots are in `target/m3d1-qa/qa-console.log` and `target/m3d1-qa/m3d1-*.png`. The strict media gate ran 16 tests against FFmpeg 8.1.2 and failed clearly with deliberately missing tool names.
 
-**Final M3-D.1 workspace gate:** 463 passed, 0 failed, 2 ignored (private CapCut fixture tests); engine 62, project 37, UI 305, media integration 16. `cargo fmt`, Clippy `-D warnings`, and `cargo check` passed. Media gate: 16/16. No commit or push.
+**Final M3-D.1 workspace gate:** 463 passed, 0 failed, 2 ignored (tests requiring a locally supplied private fixture); engine 62, project 37, UI 305, media integration 16. `cargo fmt`, Clippy `-D warnings`, and `cargo check` passed. Media gate: 16/16. No commit or push.
 
 **Still missing / explicitly unverified:** power-loss durability, full-disk behavior, antivirus/share-mode failure, an OS-level multi-process lock and simultaneous-writer collision proof, parent-directory flush on Windows, and content hashing for media identity. Library scan/open and recovery-candidate validation are synchronous bounded UI operations; AutoSave/recovery writes are worker-backed. FFmpeg timeout covers the direct child, not an arbitrary wrapper process tree. A recovery snapshot cannot exist for edits made before its publication; no zero-data-loss claim is made. See also `MEDIA_IDENTITY.md`.
 
@@ -242,6 +242,22 @@ Manual M4-A QA at Windows 1600×900, 1210×710, and 1920×1080 (`target/m4a-qa/`
 **M4-A.1 integration and colour QA** (`target/m4a1-qa/`, driver `target/m4a1_qa.ps1`, fixtures `target/m4a1-qa/media/`, decode reference `target/m4a1-qa/ground-truth.txt`): eight owned synthetic H.264 clips (1280×720 red, 640×360 blue, 3840×2160 gold, mid-gray, non-primary 212/84/30, black→white ramp, 360×640 portrait, rotated) were imported into one managed project and verified on a 16-point grid inside the letterboxed canvas, compared against **FFmpeg's own decoded bytes** rather than the ideal synthetic colour (the H.264 4:2:0 round trip moves saturated primaries by up to 2, e.g. 255→253). Every clip reported `worst-deviation=0` against tolerance 3, the ramp increased monotonically left→right with zero channel separation, and the same frame held at 1210×710, 1600×900 and 1920×1080. Measured canvas geometry: 4K source presented 435×243 px (1.790 vs 1.778 expected) and portrait 179×317 px (0.5647 vs 0.5625), i.e. aspect preserved within ~1 px of rounding. Rapid alternating scrubs settled on the requested clip with `worst-deviation=0`, proving no stale texture was presented. `CUTCRAFT_PREVIEW_RENDERER=egui` produced `EGUI FALLBACK` with the identical frame; the new `CUTCRAFT_PREVIEW_RENDERER=init-failure` seam produced the visible status warning plus the same fallback frame. Offline media reported `Preview status Media offline` and Relink returned the blue GPU frame; close/reopen rebuilt the GPU path; the project file hash was unchanged across graceful close and AutoSave kept returning to `Saved` while frames were being replaced. Alpha edge cases exist only as synthetic renderer inputs (YUV sources carry no alpha), which is what the device-backed suite covers.
 
 **M4-A / M4-A.1 limitations:** single-frame presentation only; no continuous playback, playback clock, audio, export, multi-layer GPU compositor, text/effect/subtitle compositing, YUV/HDR/color-management shader, hardware decode, or device-loss recovery. Upload runs on the UI thread via `queue.write_texture` and is measured; the egui texture fallback remains. A degenerate/zero-size canvas is refused in code (`canvas.width() <= 1.0`) but was only exercised down to 1210×710 at runtime. Shader/pipeline creation failure is not injectable, so only the environment-requested initialization-failure path is verified. Tick timings taken with `CUTCRAFT_RENDER_LOG=1` include the cost of the diagnostic writes themselves (see `PERFORMANCE.md`) and are not production scrub latency.
+
+### Latest full Windows gates (2026-11-01)
+
+Run on the QA machine with the pinned toolchain and FFmpeg/ffprobe 8.1.2 available:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all -- --check --config-path .config/rustfmt.toml` | Pass |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
+| `cargo check --workspace` | Pass |
+| `cargo test --workspace` | 497 passed, 0 failed, 2 ignored |
+| `cargo test -p capcut-ui` | 312 passed |
+| `cargo test -p capcut-renderer` | 4 CPU-side + 14 device-backed passed |
+| `CUTCRAFT_REQUIRE_MEDIA=1 cargo test -p capcut-media --test media_pipeline -- --nocapture` | 16/16 passed; H.264 generation required and available |
+
+The two ignored tests require a private fixture supplied out-of-band by the owner and stay ignored in every recorded run. The M4-A.1 real-window QA used eight owned synthetic clips; worst sampled colour deviation was 0 at tolerance 3 (details in the M4-A.1 section above). CPU-side Inspector layout/paint timing was not instrumented and remains **N/A**; GPU upload-completion and present timings remain **N/A**.
 
 ## 7. Failure and data-integrity tests
 

@@ -4,7 +4,7 @@
 
 ## 1. Code organization
 
-- Each crate owns its domain: `capcut-core` (time, IDs, math, errors); `capcut-format` (CapCut interchange); `capcut-engine` (project, edit commands, playback state); `capcut-media` (media I/O and caches); `capcut-renderer` (GPU textures/composition); `capcut-ui` (egui); the application wires them together.
+- Each crate owns its domain: `capcut-core` (time, IDs, math, errors); `capcut-engine` (project, edit commands, playback state); `capcut-media` (media I/O and caches); `capcut-renderer` (GPU textures/composition); `capcut-ui` (egui); the application wires them together.
 - Public types should not require UI, decoder, or OS-specific resources unless the crate explicitly owns them.
 - Make modules small and organized by responsibility. Prefer readable Rust and typed APIs over a large `utils.rs` or a single global mutable app state.
 - Avoid circular dependencies, platform-specific paths in shared types, and persistent state hidden in thread-locals.

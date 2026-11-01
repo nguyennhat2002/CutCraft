@@ -109,7 +109,7 @@ order. No independent subagent review was performed.
 
 - No media import, decode, render, playback, edit commands, persistence, export
   encoding, account system, or template marketplace.
-- No copied CapCut code, images, icons, fonts, or proprietary layouts beyond the
+- No copied third-party code, images, icons, fonts, or proprietary layouts beyond the
   measured proportions and color hierarchy.
 - No new dependencies and no changes to lower-level crates.
 

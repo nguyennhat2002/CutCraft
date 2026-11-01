@@ -9,9 +9,13 @@ illustrations, icons, and copy remain original.
 
 | Screen | File | Pixel size |
 |---|---|---|
-| Homepage | `REDACTED-LOCAL-CAPTURE` | 1437 × 954 |
-| Editor | `REDACTED-LOCAL-CAPTURE` | 1868 × 1077 |
-| Export dialog | `REDACTED-LOCAL-CAPTURE` | 721 × 663 |
+| Homepage | local capture, not distributed | 1437 × 954 |
+| Editor | local capture, not distributed | 1868 × 1077 |
+| Export dialog | local capture, not distributed | 721 × 663 |
+
+The reference captures are screenshots of a third-party editor held outside this
+repository. They are deliberately **not** distributed here: only the measured
+geometry derived from them is recorded. Do not add them to this repo.
 
 Method: native-scale screenshots, visual region reading, and point sampling with
 Pillow (`Image.getpixel`). Coordinates use a top-left origin. Values are

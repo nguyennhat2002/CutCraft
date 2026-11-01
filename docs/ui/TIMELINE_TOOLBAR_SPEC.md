@@ -2,12 +2,12 @@
 
 ## Source
 
-- Reference: user-supplied CapCut timeline toolbar screenshot (external, not stored in the repository).
+- Reference: user-supplied timeline toolbar screenshot from a third-party editor (external, not stored in the repository).
 - Size: **1857 × 35 px**
 - The reference is external and is **not** copied into this repository.
 - Measurements below are approximate pixel readings from the original image.
 - Icons whose function cannot be established from the screenshot are recorded as
-  **UNRESOLVED**; no authoritative CapCut name is invented for them.
+  **UNRESOLVED**; no authoritative name is invented for them.
 
 ## Reference measurements
 

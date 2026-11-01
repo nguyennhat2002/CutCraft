@@ -15,7 +15,7 @@ The existing project store is a staged, checksum-verified, atomic replacement wr
 ### 1. Recovery is a single-slot, validated snapshot per project
 
 - Recovery files live under `<managed-project-root>/.recovery/<ProjectId>.cutcraft-recovery`.
-- The `.recovery` directory is hidden from project scanning and is never inside a CapCut draft folder.
+- The `.recovery` directory is hidden from project scanning and is never inside a non-native project folder.
 - Recovery is written by a dedicated one-worker `RecoveryWorker` (one pending latest job, one in-flight job, one result slot). It is not the primary AutoSave worker.
 - Only the newest recovery snapshot per project is retained. A newer snapshot atomically replaces an older one after full validation. There is no unbounded history.
 - Recovery files are removed only by an explicit successful restore (after the new project is durably published) or by an explicit discard action. Stale, invalid, or foreign recovery files are not silently deleted.
@@ -150,6 +150,6 @@ No mechanism promises zero data loss when no durable snapshot exists.
 
 - **Journal every edit**: more durable but larger, more complex, and unnecessary until the snapshot design is proven; a journal can be added later without changing the authoritative store.
 - **Overwrite the primary with recovery on confirmation**: risks data loss and conflicts with the requirement not to overwrite automatically; a new project identity is safer.
-- **Treat a recovery file as a CapCut draft**: violates the read-only CapCut boundary and confuses schemas.
+- **Feed a recovery file to a third-party project-format reader**: this repository has no such reader, and doing so would confuse schemas.
 - **Automatic merge of external and editor histories**: speculative and unsafe.
 - **Store recovery inside each project directory**: would be copied by duplicate/move operations and could be mistaken for project content; a root-level hidden recovery area keeps identity explicit.

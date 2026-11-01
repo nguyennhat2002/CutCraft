@@ -5,7 +5,7 @@
 
 ## Context
 
-The native engine owns exact tick time, stable IDs, transactional edits, and engine-owned Magnet state, but has no persistence. CapCut draft import remains a separate read-only compatibility path. Persistence must not turn the engine into a serialization/IO layer or couple native projects to CapCut JSON.
+The native engine owns exact tick time, stable IDs, transactional edits, and engine-owned Magnet state, but has no persistence. Persistence must not turn the engine into a serialization/IO layer or couple native projects to a third-party project schema.
 
 ## Decision
 
@@ -16,11 +16,11 @@ The native engine owns exact tick time, stable IDs, transactional edits, and eng
 5. Persist explicit Magnet state. Loading validates continuity when ON and never normalizes; OFF preserves gaps.
 6. Use staged sibling files, file synchronization, staged re-validation, and atomic replacement. Never delete a valid project before a verified replacement exists. Detect external modification by SHA-256 fingerprints.
 7. Keep edit history session-only. Persist monotonic ID high-water marks and never reduce them to the maximum existing ID.
-8. Keep `capcut-format` exclusively responsible for CapCut draft compatibility.
+8. Keep `capcut-format` out of the native persistence design; it is not a native project store.
 
 ## Consequences
 
-- Native projects are independently readable/testable and do not depend on CapCut schemas.
+- Native projects are independently readable/testable and do not depend on external draft schemas.
 - New crate and workspace dependency line; UI gains a dependency on `capcut-project`.
 - Restore APIs expand the engine surface but do not add serialization/IO coupling.
 - Save As is a document-identity boundary and requires careful failure atomicity.

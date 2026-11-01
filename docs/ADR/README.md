@@ -18,4 +18,4 @@ One numbered Markdown file per accepted architecture decision. Status and purpos
 - **Status** describes the decision's scope, not a claim that every consequence is implemented.
 - A later ADR that changes a durable policy must link to the earlier ADR and state exactly what is superseded or extended.
 - Do not rewrite an accepted ADR's historical decision merely because the implementation progressed. Add a pointer and a new ADR for changed policy.
-- Notes that are not architectural decisions are not ADRs and must not be treated as accepted architecture without an explicit decision.
+- Research notes are kept outside this repository (RULE 000 in `../../AGENTS.md`) and are never ADRs; they must not be treated as accepted architecture without an explicit decision.

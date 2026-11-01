@@ -84,7 +84,7 @@ Create an ADR for decisions with durable cost or cross-crate impact:
 - timeline time representation and frame/PTS mapping;
 - decoder/encoder library choice, linking, license, and distribution;
 - GPU/graphics backend and device/surface lifetimes;
-- engine dependency on CapCut-specific formats;
+- engine dependency on the non-native format crate (pending removal, `AGENTS.md` §9);
 - project persistence, autosave and schema migrations;
 - main A/V clock and seek/frame-drop policy.
 

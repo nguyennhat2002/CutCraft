@@ -70,9 +70,9 @@ only in the UI projection and are never written back into engine state.
 - Source PTS conversion is deliberately narrow in M2 and must be expanded with
   real media fixtures and a separate ADR before media-backed editing.
 - Undo/redo and command snapshots store only project metadata, selection, and
-  the engine-owned Magnet preference; no frames, GPU resources, or CapCut
+  the engine-owned Magnet preference; no frames, GPU resources, or external
   document bytes.
-- The engine remains independent of CapCut JSON field names.
+- The engine remains independent of external draft JSON field names.
 
 ## Validation and rollback
 

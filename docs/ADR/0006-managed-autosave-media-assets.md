@@ -7,7 +7,7 @@
 
 ## Context
 
-M3-C proved a real H.264 probe/decode path, but the video binding was session-only and `.cutcraft` v1 had no media identity. That produced a workflow that could not survive a restart and required manual Save/Save As. M3-D changes the product workflow to CapCut-style managed projects:
+M3-C proved a real H.264 probe/decode path, but the video binding was session-only and `.cutcraft` v1 had no media identity. That produced a workflow that could not survive a restart and required manual Save/Save As. M3-D changes the product workflow to managed projects:
 
 - a new project is created inside a managed CutCraft project library and is persisted before the Editor is exposed;
 - edits are AutoSaved without repeated destination dialogs;
@@ -96,7 +96,7 @@ Architecture:
 - **No AutoRecovery journal.** AutoSave writes the managed project file; the last successfully published file is preserved on failure, but there is no crash-recovery copy. Do not describe AutoSave as crash-proof.
 - Conflict recovery offers Retry Save or Stay in the Editor. There is no "Save a Copy" action yet.
 - Inactive rename/duplicate run synchronously on the UI thread. Only document writes are worker-backed.
-- No source-media copying, no CapCut AppData/draft modification, no CapCut-draft AutoSave, and no CapCut-to-native conversion.
+- No source-media copying, no writes to another application's data or project folders, and no external-format conversion.
 - No audio, playback clock, compositing, transitions, linked-media movement, nested editing, hardware decode, GPU compositor, or export encoding.
 - FFmpeg remains a runtime-discovered external prerequisite (ADR-0005); no binary is bundled or linked.
 - The QA/managed-project root can be isolated with `CUTCRAFT_PROJECTS_DIR`; this is a test/QA facility, not a user-facing destination picker.

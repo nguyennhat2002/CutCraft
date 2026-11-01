@@ -36,7 +36,7 @@ Composition / subtitle overlay
 GPU surface submission and presentation
 ```
 
-This diagram is **CutCraft's proposed architecture**, not an end-to-end internal CapCut call graph confirmed by reverse engineering.
+This diagram is **CutCraft's proposed architecture**, not an observed call graph of any other editor.
 
 Measure each stage independently; 'decoded' is not 'displayed'. Track a request ID through probe, decode, scheduling, texture upload, compositor, submit and present if platform APIs expose those timestamps.
 
@@ -146,6 +146,10 @@ Sub-phase trace on frame-arrival ticks: `poll_ms` p50 13.496 (receiving the owne
 **Measurement caveat, established by experiment:** adding one unconditional trace line per tick raised `state_ms` from 0.086 ms to 10.9 ms (n=74–108), i.e. a synchronous write of one short log line to the redirected stderr file costs ~11 ms on this machine. The frame-arrival path additionally prints a ~600-character `Debug` metrics line. The ~85 ms arrival-tick figure is therefore dominated by diagnostic logging that only exists while `CUTCRAFT_RENDER_LOG` is set, and must not be read as production scrub cost. The residual inside `gpu_ms` after subtracting the estimated log cost is not decomposed; re-measuring with logging off (or a cheaper log format) is a follow-up before any playback budget is claimed.
 
 Also unmeasured: continuous playback FPS, GPU completion, present latency, and behavior under a concurrent decode storm — none of those paths exist yet.
+
+### Inspector timing status
+
+CPU-side Inspector layout/paint timing is **N/A (not instrumented)**. Do not infer an Inspector latency or GPU presentation claim from integration-test durations; M4-A's queue-enqueue and renderer-recording measurements do not imply GPU completion.
 
 ### M3-D.1 measured save/recovery overhead
 

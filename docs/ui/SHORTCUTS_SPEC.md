@@ -2,7 +2,7 @@
 
 ## Source and scope
 
-- Visual reference: user-supplied CapCut Shortcuts dialog screenshot, 721×663 px. The reference is external and is not copied into this repository.
+- Visual reference: user-supplied Shortcuts dialog screenshot from a third-party editor, 721×663 px. The reference is external and is not copied into this repository.
 - CutCraft dialog target: 720×660 maximum, 640×500 minimum, centered over a dimmed backdrop.
 - The feature is a real shortcut manager: profiles execute implemented commands immediately, persist to user configuration, and reject conflicting overlapping bindings. Planned commands remain visible but can never execute.
 
@@ -152,4 +152,4 @@ Manual evidence:
 - CutCraft's maximum dialog height is 660 px and width 720 px to match the reference proportions while fitting the 960×600 minimum window.
 - The reference contains more timeline commands; CutCraft's registry is limited to commands it can describe honestly and extend later without redesigning the dialog.
 - Profile names are CutCraft Default/Custom rather than the reference's numbered presets.
-- CutCraft uses its own charcoal/cyan design tokens and Lucide keyboard glyph; no CapCut artwork is reused.
+- CutCraft uses its own charcoal/cyan design tokens and Lucide keyboard glyph; no third-party artwork is reused.
