@@ -24,7 +24,6 @@ CutCraft is an **early-stage** Rust video editor with a working desktop UI shell
 ```text
 apps/capcut-editor
 crates/core
-crates/capcut-format
 crates/engine
 crates/media
 crates/project

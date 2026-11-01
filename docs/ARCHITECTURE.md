@@ -14,9 +14,8 @@ The following edges reflect the checked-in Cargo manifests, not idealized future
 
 ```text
 L0  capcut-core
-     ├── capcut-format (L1)
      ├── capcut-media  (L2)
-     └── capcut-engine (L2; ALSO depends on capcut-format)
+     └── capcut-engine (L2)
 
 L2  capcut-project → capcut-core, capcut-engine
 L3  capcut-renderer → capcut-core, capcut-engine, capcut-media, wgpu 30.0.1
@@ -48,7 +47,7 @@ The project already contains `.github/workflows/ci.yml`, `docs/ADR/README.md`, a
 5. `ui` translates user actions into engine commands and displays results/errors. egui/eframe dependencies are confined to `capcut-ui` and the application; UI state (screens, temporary sessions, panel visibility, export form values) is not engine state.
 6. The application is the composition root; backend selection and cross-layer wiring happen here or in dedicated integration modules.
 7. `project` owns the native `.cutcraft` schema, serde and file IO; `engine` must not import serde or filesystem APIs.
-8. The current `engine → capcut-format` edge exists. A future format-agnostic engine is a **proposal** requiring an ADR and coordinated Cargo/code changes, not an assumption about today's implementation.
+8. `engine` must stay free of external project-format dependencies; adding one is a design change that requires an ADR and coordinated Cargo, code and test work.
 
 ### Actual vs planned (2026-10-31)
 
@@ -147,7 +146,7 @@ The scheduler chooses frames by intended presentation time, not decode completio
 
 The native `.cutcraft` representation round-trips project content through `capcut-project` (see ADR-0003, ADR-0006 and ADR-0007). Schema v2 adds a persistent media asset registry, clip `media_asset_id` references, project identity/timestamps, and a save generation. v1 files are migrated in memory and are not rewritten merely by opening.
 
-If the engine is made independent from `capcut-format`, record an ADR detailing ownership, dependency changes, migration and tests. Do not represent external draft field names as engine invariants.
+If third-party project-format support is ever designed, record an ADR detailing ownership, dependency changes, migration and tests. Do not represent undocumented third-party field names as engine invariants.
 
 ## 7. Dependency and backend choices still open
 

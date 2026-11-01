@@ -40,7 +40,6 @@
 - [x] Add first unit tests for `capcut-core` and a smoke test for the application executable. (Implemented; workspace suite covers core/engine/project/media/UI.)
 - [x] Agree on timebase/PTS representation in an ADR before implementing clip math. (ADR-0002; implemented and tested.)
 - [x] Agree on media decoding integration and license/deployment plan in an ADR. (ADR-0005 runtime FFmpeg CLI; not bundled/linked; media gate documented.)
-- [ ] Decide whether to keep or later remove `capcut-engine → capcut-format` coupling; do not change blindly. (Still planned; current edge remains.)
 
 **Acceptance:** all documented checks pass or remaining platform blockers are explicitly captured; no feature is misrepresented as implemented.
 

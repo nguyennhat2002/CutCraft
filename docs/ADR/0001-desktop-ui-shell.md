@@ -22,7 +22,7 @@ recorded.
   declares Rust 1.95 as its MSRV, so it is compatible with the workspace's
   pinned Rust 1.97.1 toolchain. `Cargo.lock` is the exact resolved version.
 - Keep the GUI framework confined to `capcut-ui` and `apps/capcut-editor`.
-  `core`, `capcut-format`, `engine`, `media`, and `renderer` remain free of
+  `core`, `engine`, `media`, and `renderer` remain free of
   `egui`/`eframe`, window types, and UI state.
 - Use eframe's default **wgpu** renderer for painting the application shell.
   This is a UI presentation choice only. It does **not** select or implement the

@@ -16,7 +16,7 @@ The native engine owns exact tick time, stable IDs, transactional edits, and eng
 5. Persist explicit Magnet state. Loading validates continuity when ON and never normalizes; OFF preserves gaps.
 6. Use staged sibling files, file synchronization, staged re-validation, and atomic replacement. Never delete a valid project before a verified replacement exists. Detect external modification by SHA-256 fingerprints.
 7. Keep edit history session-only. Persist monotonic ID high-water marks and never reduce them to the maximum existing ID.
-8. Keep `capcut-format` out of the native persistence design; it is not a native project store.
+8. Keep external project-format parsing out of the native persistence design; `capcut-project` alone owns `.cutcraft`.
 
 ## Consequences
 

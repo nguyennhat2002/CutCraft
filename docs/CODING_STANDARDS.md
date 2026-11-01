@@ -8,7 +8,7 @@
 - Public types should not require UI, decoder, or OS-specific resources unless the crate explicitly owns them.
 - Make modules small and organized by responsibility. Prefer readable Rust and typed APIs over a large `utils.rs` or a single global mutable app state.
 - Avoid circular dependencies, platform-specific paths in shared types, and persistent state hidden in thread-locals.
-- `capcut-engine` currently depends on `capcut-format`; any future format-agnostic restructuring requires an ADR and migration tests.
+- `capcut-engine` must stay free of external project-format dependencies; changing that boundary requires an ADR and migration tests.
 
 ## 2. Errors and panics
 

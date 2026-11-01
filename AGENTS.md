@@ -59,7 +59,7 @@ Current Cargo dependency layering (see `docs/ARCHITECTURE.md`):
 | App | `apps/capcut-editor` | Composition root and desktop executable |
 | Tooling | `xtask` | Build/test/release automation; currently only a scaffold |
 
-**NOW:** No `egui`, `eframe`, filesystem dialogs, or window toolkit in `core`, `engine`, or `media`. Do not let media decoders import UI types or renderer internals. Honor current `Cargo.toml` dependencies when implementing tasks. **FUTURE DESIGN DECISION:** The engine should ideally be format-agnostic; its current dependency on `capcut-format` must not be removed or reversed casually. Record and approve an ADR before changing that boundary.
+**NOW:** No `egui`, `eframe`, filesystem dialogs, or window toolkit in `core`, `engine`, or `media`. Do not let media decoders import UI types or renderer internals. Honor current `Cargo.toml` dependencies when implementing tasks. **FUTURE DESIGN DECISION:** The engine must stay free of external project-format dependencies; adding one requires an accepted ADR first.
 
 Each public API needs explicit ownership and error semantics. Prefer small, testable interfaces to a giant `Editor` object that knows everything.
 
