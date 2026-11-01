@@ -1669,6 +1669,11 @@ impl AppState {
             self.media_library.reset();
         } else {
             self.leave_editor();
+            // The displayed frame and its GPU texture belong to the editing session,
+            // not to Home: dropping them here is what stops a resumed Editor from
+            // presenting a frame captured before the visit.
+            self.media_preview.clear();
+            self.clear_preview_renderer();
         }
         self.screen = Screen::Home;
         self.native_dialog = None;
@@ -2405,6 +2410,49 @@ mod tests {
 
         assert_eq!(state.screen(), Screen::Home);
         assert!(!state.session().is_some_and(|session| session.export_open));
+    }
+
+    #[test]
+    fn returning_home_clears_preview_identity_but_keeps_native_session() {
+        let mut state = editor_state();
+        let timebase = capcut_media::MediaTimebase::new(1, 15_360).expect("valid timebase");
+        let target = capcut_media::MediaTimestamp::new(0, timebase);
+        state
+            .media_preview
+            .inject_displayed_frame_for_test(capcut_media::DecodedFrame {
+                source_id: 41,
+                generation: 7,
+                clip_tag: 11,
+                asset_tag: 13,
+                width: 2,
+                height: 1,
+                format: capcut_media::PixelFormat::Rgba8,
+                rgba: vec![0, 0, 0, 255],
+                pts: target,
+                requested_target: target,
+                decode_elapsed_ms: 1,
+            });
+        assert!(state.media_preview.frame().is_some());
+
+        state.go_home();
+
+        assert_eq!(state.screen(), Screen::Home);
+        assert!(
+            state.session().is_some(),
+            "the native editing session must survive a Home visit"
+        );
+        assert!(state.media_preview.frame().is_none());
+        assert!(matches!(
+            state.media_preview.status(),
+            ClipPreviewStatus::NoProject
+        ));
+
+        assert!(state.resume_editor());
+        assert_eq!(state.screen(), Screen::Editor);
+        assert!(
+            state.media_preview.frame().is_none(),
+            "a frame from before the Home visit was still presented after resuming"
+        );
     }
 
     #[test]
