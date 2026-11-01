@@ -6,4 +6,3 @@ rust-version.workspace = true
 license.workspace = true
 [dependencies]
 capcut-core.workspace = true
-capcut-format.workspace = true

@@ -6,8 +6,8 @@ use crate::app_state::{AppState, Screen};
 use crate::widgets::shortcuts_dialog::{self, ShortcutDialogOutcome};
 use crate::widgets::timeline::clip_visuals::TimelineVisualCache;
 use crate::widgets::{
-    about, auto_save_dialogs, capcut_draft, capcut_draft_dialog, editor, home, media_import_dialog,
-    native_project_dialogs, project_library_dialogs, recovery_dialogs, status_bar,
+    about, auto_save_dialogs, editor, home, media_import_dialog, native_project_dialogs,
+    project_library_dialogs, recovery_dialogs, status_bar,
 };
 
 /// Draw the active CutCraft screen and global status/About/dialog chrome.
@@ -18,13 +18,11 @@ pub fn show_shell(ui: &mut Ui, state: &mut AppState, timeline_visuals: &mut Time
 
     match state.screen() {
         Screen::Editor => editor::show(ui, state, timeline_visuals),
-        Screen::CapCutDraft => capcut_draft::show(ui, state),
         Screen::Home | Screen::Projects | Screen::Settings => home::show(ui, state),
     }
 
     about::show(&context, state);
 
-    capcut_draft_dialog::show(&context, state);
     native_project_dialogs::show(&context, state);
     media_import_dialog::show(&context, state);
     project_library_dialogs::show(&context, state);

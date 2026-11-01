@@ -81,7 +81,7 @@ fn show_file_dialog(context: &Context, state: &mut AppState) {
                     ui.set_min_width(ui.available_width());
                     let description = match mode {
                         NativeDialogMode::Open => {
-                            "Open a native CutCraft .cutcraft project. This is separate from CapCut draft folders."
+                            "Open a native CutCraft .cutcraft project."
                         }
                         NativeDialogMode::SaveAs => {
                             "Choose a .cutcraft file. Saving to a different file creates a new project identity."

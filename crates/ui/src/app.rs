@@ -1,6 +1,6 @@
 //! eframe application entry and native window configuration.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::shortcuts::{ShortcutManager, ShortcutStore};
 use crate::widgets::timeline::clip_visuals::TimelineVisualCache;
@@ -13,7 +13,6 @@ use capcut_renderer::PreviewRenderer;
 pub struct CutCraftApp {
     state: AppState,
     timeline_visuals: TimelineVisualCache,
-    close_after_copy: bool,
     render_log: bool,
 }
 
@@ -96,11 +95,6 @@ impl CutCraftApp {
                 );
             }
         }
-        if let Ok(path) = std::env::var("CUTCRAFT_OPEN_DRAFT") {
-            let _ = app
-                .state
-                .load_capcut_draft_from(std::path::Path::new(&path));
-        }
         app
     }
 
@@ -124,12 +118,8 @@ impl CutCraftApp {
         if context.input(|input| input.viewport().close_requested())
             && !self.state.request_app_close()
         {
-            if self.state.copy_job_active() {
-                self.close_after_copy = true;
-            }
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
-        self.state.poll_copy_job();
         let shortcuts_were_open = self.state.shortcuts_open();
         self.state.handle_shortcuts(&context);
         if !shortcuts_were_open && self.state.shortcuts_open() {
@@ -153,13 +143,6 @@ impl CutCraftApp {
         self.state.persist_workspace_layout_if_requested();
         if self.state.take_exit_request() {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
-        if self.close_after_copy {
-            if self.state.copy_job_active() {
-                context.request_repaint_after(Duration::from_millis(100));
-            } else {
-                context.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
         }
         if let Some(tick_started) = tick_started {
             let draw_ms = tick_started.elapsed().as_secs_f64() * 1_000.0;
@@ -402,105 +385,6 @@ mod tests {
             }
         );
         let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn window_close_defers_exit_until_the_draft_copy_is_safe() {
-        let base =
-            std::env::temp_dir().join(format!("cutcraft-app-close-copy-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&base).expect("base");
-        let source = base.join("source");
-        std::fs::create_dir_all(&source).expect("source");
-        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../capcut-format/tests/fixtures/synthetic-draft");
-        std::fs::copy(
-            fixture.join("REDACTED-DRAFT-FILENAME"),
-            source.join("REDACTED-DRAFT-FILENAME"),
-        )
-        .expect("draft");
-        std::fs::write(source.join("padding.bin"), vec![0x5A; 32 * 1024 * 1024]).expect("padding");
-        let destination = base.join("copy");
-
-        let context = Context::default();
-        theme::configure(&context);
-        let mut app = CutCraftApp::default();
-        app.state
-            .load_capcut_draft_from(&source)
-            .expect("load draft");
-        app.state
-            .start_capcut_copy(&destination)
-            .expect("start copy");
-
-        let mut close_input = frame_input(1600.0, 900.0, 0.0);
-        let mut viewport = egui::ViewportInfo::default();
-        viewport.events.push(egui::ViewportEvent::Close);
-        close_input
-            .viewports
-            .insert(egui::ViewportId::ROOT, viewport);
-        let output = context.run_ui(close_input, |ui| app.draw(ui));
-        let commands = &output.viewport_output[&ViewportId::ROOT].commands;
-        assert!(
-            commands
-                .iter()
-                .any(|command| matches!(command, egui::ViewportCommand::CancelClose)),
-            "closing must be deferred while the copy worker is active"
-        );
-        if app.state.copy_job_active() {
-            assert!(app.state.copy_cancellation_requested());
-        }
-        output.drop_without_applying_deltas();
-
-        let mut close_sent = false;
-        for step in 0..500 {
-            let output = context.run_ui(
-                frame_input(1600.0, 900.0, 0.1 + step as f64 / 100.0),
-                |ui| app.draw(ui),
-            );
-            let commands = &output.viewport_output[&ViewportId::ROOT].commands;
-            if commands
-                .iter()
-                .any(|command| matches!(command, egui::ViewportCommand::Close))
-            {
-                close_sent = true;
-                output.drop_without_applying_deltas();
-                break;
-            }
-            output.drop_without_applying_deltas();
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(
-            close_sent,
-            "the app must close after the copy is cleaned up"
-        );
-        assert!(!app.state.copy_job_active());
-        let draft = app.state.capcut_draft().expect("draft");
-        if draft.copy_report.is_some() {
-            assert!(
-                destination.is_dir(),
-                "a report is only valid when the published copy exists"
-            );
-        } else {
-            assert!(draft.copy_error.is_some());
-            assert!(
-                !destination.exists(),
-                "failed or cancelled copies publish nothing"
-            );
-        }
-
-        let leftovers = std::fs::read_dir(&base)
-            .expect("base")
-            .filter(|entry| {
-                entry.as_ref().is_ok_and(|entry| {
-                    entry
-                        .file_name()
-                        .to_string_lossy()
-                        .contains("cutcraft-staging")
-                })
-            })
-            .count();
-        assert_eq!(leftovers, 0);
-        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

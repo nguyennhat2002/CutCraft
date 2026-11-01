@@ -6,7 +6,6 @@
 pub mod app;
 pub mod app_state;
 pub mod auto_save_state;
-pub mod capcut_draft_state;
 pub mod config;
 pub mod editor_state;
 pub mod export_settings;

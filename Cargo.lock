@@ -594,18 +594,6 @@ name = "capcut-engine"
 version = "0.1.0"
 dependencies = [
  "capcut-core",
- "capcut-format",
-]
-
-[[package]]
-name = "capcut-format"
-version = "0.1.0"
-dependencies = [
- "capcut-core",
- "libc",
- "serde_json",
- "sha2",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -643,7 +631,6 @@ version = "0.1.0"
 dependencies = [
  "capcut-core",
  "capcut-engine",
- "capcut-format",
  "capcut-media",
  "capcut-project",
  "capcut-renderer",

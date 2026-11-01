@@ -349,7 +349,7 @@ pub fn show(ui: &mut Ui, session: &mut EditorSession, shortcuts: &ShortcutManage
                     );
                 } else {
                     common::badge(ui, "Native project", Palette::ACCENT).on_hover_text(
-                        "Native .cutcraft project. CapCut drafts remain a separate read-only path.",
+                        "Native .cutcraft project with exact tick timing.",
                     );
                 }
                 if let Some(error) = &session.native_error {

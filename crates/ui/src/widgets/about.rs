@@ -63,7 +63,7 @@ pub fn show(context: &Context, state: &mut AppState) {
                          to one main-track clip for the session only; .cutcraft files store no media \
                          path. Playback, audio, compositing, timeline media import, linked-media \
                          movement, and export are not implemented. Preview uses a locally installed \
-                         FFmpeg CLI (not bundled). CapCut draft folders remain read-only.",
+                         FFmpeg CLI (not bundled).",
                     )
                     .size(11.0)
                     .color(Palette::TEXT_SECONDARY),

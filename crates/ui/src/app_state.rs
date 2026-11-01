@@ -9,10 +9,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::auto_save_state::AutoSaveCoordinator;
-use crate::capcut_draft_state::{
-    copy_loaded_draft, drain_copy_job, load_capcut_draft, start_copy_worker, CopyJob,
-    LoadedCapCutDraft, OpenCapCutDraftDialog,
-};
 use crate::editor_state::EditorSession;
 use crate::media_library_state::{AssetAvailability, MediaDialogState, MediaLibraryState};
 use crate::media_preview_state::{ClipPreviewStatus, MediaPreview};
@@ -24,7 +20,6 @@ use crate::shortcuts::{CommandId, ShortcutManager, ShortcutRuntime, ShortcutsDia
 use capcut_core::time::FrameRate;
 use capcut_engine::command::NativeEditor;
 use capcut_engine::project::{Project, ProjectSnapshot};
-use capcut_format::copy::{CopyError, CopyProgress};
 use capcut_project::autosave::{SaveJob, SaveJobKind};
 use capcut_project::{
     PreparedProject, ProjectDocumentMetadata, ProjectId, ProjectLibrary, ProjectLibraryEntry,
@@ -41,7 +36,6 @@ pub enum Screen {
     Projects,
     Settings,
     Editor,
-    CapCutDraft,
 }
 
 impl Screen {
@@ -51,7 +45,6 @@ impl Screen {
             Self::Projects => "Projects",
             Self::Settings => "Settings",
             Self::Editor => "Editor",
-            Self::CapCutDraft => "CapCut Draft",
         }
     }
 }
@@ -159,9 +152,6 @@ pub struct AppState {
     session: Option<EditorSession>,
     shortcuts: ShortcutManager,
     shortcuts_dialog: Option<ShortcutsDialogState>,
-    capcut_draft: Option<LoadedCapCutDraft>,
-    open_capcut_dialog: Option<OpenCapCutDraftDialog>,
-    copy_job: Option<CopyJob>,
     workspace_preferences: WorkspacePreferences,
     workspace_store: Option<WorkspaceStore>,
     native_dialog: Option<NativeProjectDialog>,
@@ -195,9 +185,6 @@ impl Default for AppState {
             session: None,
             shortcuts: ShortcutManager::default(),
             shortcuts_dialog: None,
-            capcut_draft: None,
-            open_capcut_dialog: None,
-            copy_job: None,
             workspace_preferences: WorkspacePreferences::default(),
             workspace_store: None,
             native_dialog: None,
@@ -870,11 +857,6 @@ impl AppState {
     }
 
     fn navigate_or_flush(&mut self, destination: PendingDestination) {
-        if self.copy_job.is_some() {
-            self.notice =
-                Notice::warning("Cancel or finish the draft copy before leaving this view.");
-            return;
-        }
         let Some(session) = self.session.as_ref() else {
             self.execute_destination(destination);
             return;
@@ -1020,8 +1002,6 @@ impl AppState {
                 );
                 self.session = Some(session);
                 self.screen = Screen::Editor;
-                self.capcut_draft = None;
-                self.open_capcut_dialog = None;
                 self.native_dialog = None;
                 self.unsaved_prompt = None;
                 self.native_error_dialog = None;
@@ -1092,8 +1072,6 @@ impl AppState {
                         session.set_timeline_height_fraction(height);
                         self.session = Some(session);
                         self.screen = Screen::Editor;
-                        self.capcut_draft = None;
-                        self.open_capcut_dialog = None;
                         self.native_dialog = None;
                         self.unsaved_prompt = None;
                         self.native_error_dialog = None;
@@ -1171,76 +1149,6 @@ impl AppState {
             &mut self.media_preview,
             &mut self.media_library,
         ))
-    }
-
-    pub fn capcut_draft(&self) -> Option<&LoadedCapCutDraft> {
-        self.capcut_draft.as_ref()
-    }
-
-    pub fn capcut_draft_mut(&mut self) -> Option<&mut LoadedCapCutDraft> {
-        self.capcut_draft.as_mut()
-    }
-
-    pub fn open_capcut_draft_dialog(&mut self) {
-        if self.copy_job.is_some() {
-            self.notice = Notice::warning("Cannot open another draft while copy is running.");
-            return;
-        }
-        self.open_capcut_dialog = Some(OpenCapCutDraftDialog::default());
-    }
-
-    pub fn close_capcut_draft_dialog(&mut self) {
-        self.open_capcut_dialog = None;
-    }
-
-    pub fn capcut_draft_dialog(&self) -> Option<&OpenCapCutDraftDialog> {
-        self.open_capcut_dialog.as_ref()
-    }
-
-    pub fn capcut_draft_dialog_mut(&mut self) -> Option<&mut OpenCapCutDraftDialog> {
-        self.open_capcut_dialog.as_mut()
-    }
-
-    pub fn load_capcut_draft_from(&mut self, path: &std::path::Path) -> Result<(), String> {
-        if self.copy_job.is_some() {
-            return Err(
-                "Cancel or finish the running copy before opening another draft.".to_owned(),
-            );
-        }
-        match load_capcut_draft(path) {
-            Ok(draft) => {
-                self.capcut_draft = Some(draft);
-                self.open_capcut_dialog = None;
-                self.screen = Screen::CapCutDraft;
-                self.notice = Notice::info(
-                    "CapCut draft loaded read-only. The source folder was not modified.",
-                );
-                Ok(())
-            }
-            Err(error) => {
-                if let Some(dialog) = &mut self.open_capcut_dialog {
-                    dialog.error = Some(error.clone());
-                }
-                self.notice = Notice::error(error.clone());
-                Err(error)
-            }
-        }
-    }
-
-    pub fn load_capcut_draft_from_dialog(&mut self) -> Result<(), String> {
-        let path = self
-            .open_capcut_dialog
-            .as_ref()
-            .map(|dialog| dialog.path.trim().to_owned())
-            .unwrap_or_default();
-        if path.is_empty() {
-            let error = "Enter an extracted CapCut draft folder path.".to_owned();
-            if let Some(dialog) = &mut self.open_capcut_dialog {
-                dialog.error = Some(error.clone());
-            }
-            return Err(error);
-        }
-        self.load_capcut_draft_from(std::path::Path::new(&path))
     }
 
     pub fn native_project_dialog(&self) -> Option<&NativeProjectDialog> {
@@ -1486,11 +1394,6 @@ impl AppState {
     }
 
     pub fn open_native_project_dialog(&mut self) {
-        if self.copy_job.is_some() {
-            self.notice =
-                Notice::warning("Cancel or finish the draft copy before opening a project.");
-            return;
-        }
         self.native_dialog = Some(NativeProjectDialog::open());
         self.unsaved_prompt = None;
         self.native_error_dialog = None;
@@ -1622,8 +1525,6 @@ impl AppState {
                 session.set_timeline_height_fraction(height);
                 self.session = Some(session);
                 self.screen = Screen::Editor;
-                self.capcut_draft = None;
-                self.open_capcut_dialog = None;
                 self.native_dialog = None;
                 self.unsaved_prompt = None;
                 self.native_error_dialog = None;
@@ -1777,27 +1678,9 @@ impl AppState {
         self.refresh_recovery_candidates();
     }
 
-    pub fn copy_job_active(&self) -> bool {
-        self.copy_job.is_some()
-    }
-
-    pub fn copy_job_progress(&self) -> Option<CopyProgress> {
-        self.copy_job.as_ref().map(|job| job.progress)
-    }
-
-    pub fn copy_cancellation_requested(&self) -> bool {
-        self.copy_job
-            .as_ref()
-            .is_some_and(|job| job.cancellation.is_cancelled())
-    }
-
     /// Returns `false` when closing must wait for a cancelled copy to clean up
     /// or for the unsaved-changes decision.
     pub fn request_app_close(&mut self) -> bool {
-        if self.copy_job.is_some() {
-            self.cancel_capcut_copy();
-            return false;
-        }
         if self.native_dialog.is_some()
             || self.unsaved_prompt.is_some()
             || self.native_error_dialog.is_some()
@@ -1824,88 +1707,6 @@ impl AppState {
             }
         }
         true
-    }
-
-    pub fn start_capcut_copy(&mut self, destination: &std::path::Path) -> Result<(), String> {
-        if self.copy_job.is_some() {
-            return Err("A draft copy is already running.".to_owned());
-        }
-        let Some(draft) = &mut self.capcut_draft else {
-            return Err("No CapCut draft is open.".to_owned());
-        };
-        if destination.exists() {
-            let message = "Destination already exists.".to_owned();
-            draft.copy_error = Some(message.clone());
-            return Err(message);
-        }
-        let source = draft.source_path().to_path_buf();
-        let job = start_copy_worker(source, destination.to_path_buf())?;
-        draft.copy_error = None;
-        draft.copy_report = None;
-        self.copy_job = Some(job);
-        Ok(())
-    }
-
-    pub fn cancel_capcut_copy(&mut self) {
-        if let Some(job) = &self.copy_job {
-            job.cancellation.cancel();
-            self.notice = Notice::info("Cancelling draft copy at the next safe checkpoint…");
-        }
-    }
-
-    pub fn poll_copy_job(&mut self) {
-        let Some(mut job) = self.copy_job.take() else {
-            return;
-        };
-        let Some(result) = drain_copy_job(&mut job) else {
-            self.copy_job = Some(job);
-            return;
-        };
-        if let Some(draft) = &mut self.capcut_draft {
-            match result {
-                Ok(report) => {
-                    draft.copy_error = None;
-                    draft.copy_report = Some(report.clone());
-                    self.notice = Notice::info(format!(
-                        "Draft copy verified: {} files, {} bytes.",
-                        report.copied_files(),
-                        report.copied_bytes()
-                    ));
-                }
-                Err(CopyError::Cancelled) => {
-                    draft.copy_error =
-                        Some("Copy cancelled. Staging output was removed.".to_owned());
-                    self.notice = Notice::warning("Draft copy cancelled.");
-                }
-                Err(error) => {
-                    let message = error.to_string();
-                    draft.copy_error = Some(message.clone());
-                    self.notice = Notice::error(message);
-                }
-            }
-        }
-    }
-
-    pub fn copy_capcut_draft(&mut self, destination: &std::path::Path) -> Result<(), String> {
-        let Some(draft) = &mut self.capcut_draft else {
-            return Err("No CapCut draft is open.".to_owned());
-        };
-        match copy_loaded_draft(draft, destination) {
-            Ok(report) => {
-                self.notice = Notice::info(format!(
-                    "Draft copy verified: {} files, {} bytes.",
-                    report.copied_files(),
-                    report.copied_bytes()
-                ));
-                Ok(())
-            }
-            Err(error) => {
-                let message = error.to_string();
-                draft.copy_error = Some(message.clone());
-                self.notice = Notice::error(message.clone());
-                Err(message)
-            }
-        }
     }
 
     pub fn shortcuts(&self) -> &ShortcutManager {
@@ -1990,7 +1791,6 @@ impl AppState {
         if self.export_open()
             || self.shortcuts_open()
             || self.about_open
-            || self.open_capcut_dialog.is_some()
             || self.native_dialog.is_some()
             || self.unsaved_prompt.is_some()
             || self.native_error_dialog.is_some()
@@ -2024,7 +1824,6 @@ impl AppState {
             modal_open: self.export_open()
                 || self.shortcuts_open()
                 || self.about_open
-                || self.open_capcut_dialog.is_some()
                 || self.native_dialog.is_some()
                 || self.unsaved_prompt.is_some()
                 || self.native_error_dialog.is_some()
@@ -2039,9 +1838,6 @@ impl AppState {
     fn execute_shortcut_command(&mut self, command: CommandId) -> bool {
         match command {
             CommandId::NewProject => {
-                if self.screen == Screen::CapCutDraft {
-                    return false;
-                }
                 self.request_new_project();
                 true
             }
@@ -2106,11 +1902,6 @@ impl AppState {
     /// Start a new native project and enter the editor. Production sessions
     /// are empty; only the explicit QA flag seeds synthetic clips.
     pub fn create_temporary_project(&mut self) {
-        if self.copy_job.is_some() {
-            self.notice =
-                Notice::warning("Cannot start another project while a draft copy is running.");
-            return;
-        }
         let native_qa = cfg!(debug_assertions)
             && std::env::var("CUTCRAFT_NATIVE_QA").ok().as_deref() == Some("1");
         let mut creation_error = None;
@@ -2133,9 +1924,6 @@ impl AppState {
         };
         session.set_timeline_height_fraction(self.workspace_preferences.timeline_height_fraction);
         self.session = Some(session);
-        self.capcut_draft = None;
-        self.open_capcut_dialog = None;
-        self.copy_job = None;
         self.native_dialog = None;
         self.unsaved_prompt = None;
         self.native_error_dialog = None;
@@ -2154,22 +1942,8 @@ impl AppState {
         };
     }
 
-    fn block_navigation_during_copy(&mut self) -> bool {
-        if self.copy_job.is_some() {
-            self.notice = Notice::warning(
-                "Cancel or finish the running draft copy before leaving this screen.",
-            );
-            true
-        } else {
-            false
-        }
-    }
-
     /// Return to the existing native session.
     pub fn resume_editor(&mut self) -> bool {
-        if self.block_navigation_during_copy() {
-            return false;
-        }
         if self.session.is_some() {
             self.screen = Screen::Editor;
             true
@@ -2179,23 +1953,14 @@ impl AppState {
     }
 
     pub fn go_home(&mut self) {
-        if self.block_navigation_during_copy() {
-            return;
-        }
         self.navigate_or_flush(PendingDestination::ReturnHome);
     }
 
     pub fn go_projects(&mut self) {
-        if self.block_navigation_during_copy() {
-            return;
-        }
         self.navigate_or_flush(PendingDestination::Projects);
     }
 
     pub fn go_settings(&mut self) {
-        if self.block_navigation_during_copy() {
-            return;
-        }
         self.navigate_or_flush(PendingDestination::Settings);
     }
 
@@ -3163,292 +2928,6 @@ mod tests {
             "Keep me",
             "the Editor context must not run a Homepage-only command"
         );
-    }
-
-    fn format_fixture() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../capcut-format/tests/fixtures/synthetic-draft")
-    }
-
-    #[test]
-    fn opens_capcut_draft_read_only_and_copies_to_a_new_destination() {
-        let mut state = AppState::default();
-        state.open_capcut_draft_dialog();
-        state.capcut_draft_dialog_mut().expect("dialog").path =
-            format_fixture().display().to_string();
-        state.load_capcut_draft_from_dialog().expect("load draft");
-        assert_eq!(state.screen(), Screen::CapCutDraft);
-        let draft = state.capcut_draft().expect("loaded draft");
-        assert_eq!(draft.project().documents().len(), 2);
-        assert_eq!(
-            draft.project().main().map(|document| document.id()),
-            Some("MAIN")
-        );
-        assert_eq!(
-            draft
-                .project()
-                .main()
-                .and_then(|document| document.summary().duration),
-            Some(1_000_000)
-        );
-
-        let root =
-            std::env::temp_dir().join(format!("cutcraft-ui-draft-copy-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("temp root");
-        let destination = root.join("copy");
-        state.copy_capcut_draft(&destination).expect("copy draft");
-        let report = state
-            .capcut_draft()
-            .expect("draft")
-            .copy_report
-            .as_ref()
-            .expect("copy report");
-        assert_eq!(report.copied_files(), 4);
-        assert_eq!(report.source_manifest, report.copied_manifest);
-        assert!(destination.is_dir());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn async_copy_completes_with_report_and_cannot_start_twice() {
-        let mut state = AppState::default();
-        state
-            .load_capcut_draft_from(&format_fixture())
-            .expect("load draft");
-        let root =
-            std::env::temp_dir().join(format!("cutcraft-ui-async-copy-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("temp root");
-        let destination = root.join("copy");
-        state.start_capcut_copy(&destination).expect("start worker");
-        assert!(state.copy_job_active());
-        assert!(state.start_capcut_copy(&root.join("second")).is_err());
-        let mut finished = false;
-        for _ in 0..100 {
-            state.poll_copy_job();
-            if !state.copy_job_active() {
-                finished = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        assert!(finished, "copy worker did not finish");
-        let draft = state.capcut_draft().expect("draft");
-        assert!(draft.copy_report.is_some());
-        assert!(draft.copy_error.is_none());
-        assert!(destination.is_dir());
-        assert!(!root.join("second").exists());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn async_copy_rejects_existing_destination_before_starting_worker() {
-        let mut state = AppState::default();
-        state
-            .load_capcut_draft_from(&format_fixture())
-            .expect("load draft");
-        let root =
-            std::env::temp_dir().join(format!("cutcraft-ui-async-dest-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("temp root");
-        let existing = root.join("existing");
-        std::fs::create_dir_all(&existing).expect("existing");
-        assert!(state.start_capcut_copy(&existing).is_err());
-        assert!(!state.copy_job_active());
-        assert!(state
-            .capcut_draft()
-            .and_then(|draft| draft.copy_error.as_ref())
-            .is_some());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    fn draft_source_with_padding(base: &std::path::Path, bytes: usize) -> std::path::PathBuf {
-        let source = base.join("source");
-        std::fs::create_dir_all(&source).expect("source");
-        std::fs::copy(
-            format_fixture().join("REDACTED-DRAFT-FILENAME"),
-            source.join("REDACTED-DRAFT-FILENAME"),
-        )
-        .expect("draft");
-        std::fs::write(source.join("padding.bin"), vec![0x5A; bytes]).expect("padding");
-        source
-    }
-
-    fn staging_leftovers(base: &std::path::Path) -> Vec<String> {
-        std::fs::read_dir(base)
-            .expect("read base")
-            .map(|entry| {
-                entry
-                    .expect("entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .filter(|name| name.contains("cutcraft-staging"))
-            .collect()
-    }
-
-    #[test]
-    fn close_request_cancels_running_copy_without_fake_success() {
-        let base =
-            std::env::temp_dir().join(format!("cutcraft-ui-close-copy-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&base).expect("base");
-        let source = draft_source_with_padding(&base, 32 * 1024 * 1024);
-        let destination = base.join("copy");
-        let mut state = AppState::default();
-        state.load_capcut_draft_from(&source).expect("load draft");
-        state.start_capcut_copy(&destination).expect("start copy");
-        assert!(state.copy_job_active());
-
-        state.go_home();
-        assert_eq!(
-            state.screen(),
-            Screen::CapCutDraft,
-            "navigation must be blocked while a copy is running"
-        );
-        assert!(!state.request_app_close());
-        assert!(state.copy_cancellation_requested());
-
-        for _ in 0..500 {
-            state.poll_copy_job();
-            if !state.copy_job_active() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert!(!state.copy_job_active(), "cancelled worker must finish");
-        let draft = state.capcut_draft().expect("draft");
-        assert!(
-            draft.copy_report.is_none(),
-            "a cancelled close must never report verified success"
-        );
-        assert!(draft
-            .copy_error
-            .as_deref()
-            .is_some_and(|error| error.contains("cancelled")));
-        assert!(!destination.exists());
-        assert!(staging_leftovers(&base).is_empty());
-        let _ = std::fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn async_copy_worker_failure_reports_error_and_leaves_no_output() {
-        let base =
-            std::env::temp_dir().join(format!("cutcraft-ui-copy-error-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&base).expect("base");
-        let parent_file = base.join("not-a-directory");
-        std::fs::write(&parent_file, b"file").expect("parent file");
-        let destination = parent_file.join("copy");
-
-        let mut state = AppState::default();
-        state
-            .load_capcut_draft_from(&format_fixture())
-            .expect("load draft");
-        state
-            .start_capcut_copy(&destination)
-            .expect("worker starts and reports later");
-        for _ in 0..500 {
-            state.poll_copy_job();
-            if !state.copy_job_active() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert!(!state.copy_job_active());
-        let draft = state.capcut_draft().expect("draft");
-        assert!(draft.copy_report.is_none());
-        assert!(draft.copy_error.is_some());
-        assert!(!destination.exists());
-        assert!(staging_leftovers(&base).is_empty());
-        let _ = std::fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn invalid_draft_path_keeps_the_user_on_home_with_an_error() {
-        let mut state = AppState::default();
-        state.open_capcut_draft_dialog();
-        state.capcut_draft_dialog_mut().expect("dialog").path =
-            "this-folder-does-not-exist".to_owned();
-        assert!(state.load_capcut_draft_from_dialog().is_err());
-        assert_eq!(state.screen(), Screen::Home);
-        assert!(state.capcut_draft().is_none());
-        assert!(state
-            .capcut_draft_dialog()
-            .and_then(|dialog| dialog.error.as_ref())
-            .is_some());
-        assert_eq!(state.notice().severity(), NoticeSeverity::Error);
-    }
-
-    #[test]
-    fn failed_copy_does_not_claim_a_verified_report() {
-        let mut state = AppState::default();
-        state
-            .load_capcut_draft_from(&format_fixture())
-            .expect("load draft");
-        let root =
-            std::env::temp_dir().join(format!("cutcraft-ui-copy-failure-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("temp root");
-        std::fs::create_dir_all(root.join("existing")).expect("existing");
-        assert!(state.copy_capcut_draft(&root.join("existing")).is_err());
-        let draft = state.capcut_draft().expect("draft");
-        assert!(draft.copy_report.is_none());
-        assert!(draft.copy_error.is_some());
-        assert!(!root.join("existing").join("REDACTED-DRAFT-FILENAME").exists());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn capcut_draft_screen_renders_verified_metadata_and_copy_controls() {
-        let mut state = AppState::default();
-        state
-            .load_capcut_draft_from(&format_fixture())
-            .expect("load draft");
-        let context = egui::Context::default();
-        crate::theme::configure(&context);
-        let output = context.run_ui(
-            egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1600.0, 900.0),
-                )),
-                ..Default::default()
-            },
-            |ui| crate::widgets::capcut_draft::show(ui, &mut state),
-        );
-        let labels = output
-            .shapes
-            .iter()
-            .filter_map(|clipped| match &clipped.shape {
-                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        output.drop_without_applying_deltas();
-        for expected in [
-            "Root document occurrence #0",
-            "READ-ONLY",
-            "Copy Draft",
-            "Nested draft graph",
-        ] {
-            assert!(
-                labels.iter().any(|label| label == expected),
-                "missing {expected}: {labels:?}"
-            );
-        }
-        assert!(labels.iter().any(|label| {
-            label.contains("Root Timeline candidate") && label.contains("no scale inferred")
-        }));
-        assert!(labels
-            .iter()
-            .any(|label| label.contains("duration raw 1000000") && label.contains("UNKNOWN")));
-        for private_value in ["MAIN", "SUB1", "Hello", "synthetic-draft"] {
-            assert!(!labels.iter().any(|label| label.contains(private_value)));
-        }
-        assert!(!labels.iter().any(|label| label.contains("Edit subtitle")));
     }
 
     #[test]

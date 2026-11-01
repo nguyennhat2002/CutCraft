@@ -46,7 +46,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                 Screen::Home => home_content(ui, state),
                                 Screen::Projects => projects_content(ui, state),
                                 Screen::Settings => settings_content(ui),
-                                Screen::Editor | Screen::CapCutDraft => {}
+                                Screen::Editor => {}
                             }
                         });
                     });
@@ -363,30 +363,10 @@ fn home_content(ui: &mut Ui, state: &mut AppState) {
                 .min_size(vec2(button_width, 30.0)),
             )
             .on_hover_cursor(CursorIcon::PointingHand)
-            .on_hover_text("Open a native .cutcraft project. This is not a CapCut draft folder.")
+            .on_hover_text("Open a native .cutcraft project file.")
             .clicked()
         {
             state.request_open_native_project();
-        }
-        if ui
-            .add(
-                egui::Button::new(
-                    RichText::new("Open CapCut Draft")
-                        .size(11.0)
-                        .color(Palette::TEXT_PRIMARY),
-                )
-                .fill(Palette::HOME_CARD)
-                .stroke(Stroke::new(1.0, Palette::HOME_BORDER))
-                .corner_radius(Radii::CONTROL)
-                .min_size(vec2(button_width, 30.0)),
-            )
-            .on_hover_cursor(CursorIcon::PointingHand)
-            .on_hover_text(
-                "Open an extracted CapCut draft folder read-only. The source is never modified.",
-            )
-            .clicked()
-        {
-            state.open_capcut_draft_dialog();
         }
     });
     ui.add_space(12.0);

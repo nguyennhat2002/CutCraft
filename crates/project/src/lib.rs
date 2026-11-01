@@ -2,7 +2,7 @@
 //!
 //! This crate owns the `.cutcraft` schema, document identity, bounded input
 //! validation, and staged atomic file replacement. It never reads or writes
-//! CapCut draft documents.
+//! external draft project documents.
 
 pub mod autosave;
 pub mod recovery;

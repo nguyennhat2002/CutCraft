@@ -4,8 +4,6 @@ pub(crate) mod icons;
 
 pub mod about;
 pub mod auto_save_dialogs;
-pub mod capcut_draft;
-pub mod capcut_draft_dialog;
 pub mod editor;
 pub mod export_dialog;
 pub mod home;

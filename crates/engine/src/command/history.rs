@@ -2,7 +2,7 @@
 //!
 //! Snapshots contain native project metadata, selection and the engine-owned
 //! Magnet preference. They never contain decoded frames, GPU resources or
-//! CapCut document bytes.
+//! document bytes of another editor.
 
 use std::collections::VecDeque;
 

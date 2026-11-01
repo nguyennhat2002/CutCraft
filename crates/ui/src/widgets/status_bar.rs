@@ -23,7 +23,6 @@ pub fn show(ui: &mut Ui, state: &AppState) {
             Some(status) => format!("AutoSave \u{00b7} {}", status.label()),
             None => "Native project \u{00b7} Not saved".to_owned(),
         },
-        Screen::CapCutDraft => "CapCut draft \u{00b7} Read-only".to_owned(),
         Screen::Home | Screen::Projects | Screen::Settings => {
             if state.session().is_some() {
                 "Native project in memory".to_owned()

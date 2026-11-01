@@ -1,6 +1,6 @@
 //! Native project, timeline, track and clip model.
 //!
-//! This model is independent of CapCut JSON. UI code only projects it for
+//! This model is independent of any external editor's project format. UI code only projects it for
 //! display; editing commands own mutation and invariants.
 
 use std::collections::BTreeSet;
@@ -587,7 +587,7 @@ impl Project {
     }
 
     /// Approximate heap/inline bytes for metadata-only history budgeting.
-    /// This intentionally excludes media, frames, GPU resources and CapCut
+    /// This intentionally excludes media, frames, GPU resources and external
     /// document bytes, which the native project does not own.
     pub fn estimated_bytes(&self) -> usize {
         let mut total = std::mem::size_of::<Self>() + self.name.capacity();

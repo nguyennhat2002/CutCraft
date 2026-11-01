@@ -8,7 +8,7 @@ Images in this directory are used by the repository README.
   renderer-owned wgpu Preview. The on-canvas badge reads `GPU PREVIEW` with the
   decoded clip's asset, dimensions, frame rate and presentation timestamp.
 - **Captured:** 2026-11-01, Windows 11 (10.0.26300), x86_64.
-- **Build:** debug binary of commit `f21210f` (`cargo run -p capcut-editor`), egui/eframe
+- **Build:** debug binary of the M4-A.1 GPU Preview integration commit (`cargo run -p capcut-editor`), egui/eframe
   0.37.0, wgpu 30.0.1, Vulkan backend on an NVIDIA GeForce RTX 2080 SUPER.
 - **Window:** 1600×900 client area; the PNG is the 1616×939 outer window, captured with
   Win32 `PrintWindow` (`PW_RENDERFULLCONTENT`) by `target/m4a_readme_shots.ps1`.
